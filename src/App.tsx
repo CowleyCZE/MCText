@@ -4,7 +4,10 @@ import { GoogleGenAI } from "@google/genai";
 import type { User } from '@firebase/auth';
 import { onAuthStateChanged, signInAnonymously, signInWithCustomToken } from "@firebase/auth";
 import { LyricInput } from './components/LyricInput';
-import { AnalysisDisplay, GroundingAttributionsList, CopyButton, CharacterCount } from './components/AnalysisDisplay';
+import { AnalysisDisplay } from './components/AnalysisDisplay';
+import { GroundingAttributionsList } from './components/AnalysisDisplay';
+import { CopyButton } from './components/AnalysisDisplay';
+import { CharacterCount } from './components/AnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { SavedLyricsManager } from './components/SavedLyricsManager';
@@ -112,7 +115,7 @@ const App: React.FC = () => {
                     setDbError(null); // Clear error on successful connection/reconnection
                   }
               },
-              (error) => { // Error callback
+              () => { // Error callback
                   setDbError("Nepodařilo se navázat spojení s databází. Aplikace pracuje v offline režimu.");
                   setIsSessionsLoading(false);
                   setIsOffline(true);

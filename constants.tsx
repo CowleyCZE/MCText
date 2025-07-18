@@ -1,5 +1,4 @@
 
-import React from 'react';
 import type { KnowledgeBaseSection } from './types';
 import { CzechRhymeAndSemantics } from './knowledge/czechRhymeAndSemantics';
 import { PoetryAnalysisForAI } from './knowledge/PoetryAnalysisForAI';

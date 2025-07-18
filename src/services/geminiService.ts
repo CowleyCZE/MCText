@@ -13,7 +13,6 @@ const parseGroundingAttributions = (genAIAttributions: GroundingChunk[] | undefi
 
 function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): T {
   let textToParse = jsonString.trim();
-  const originalStringForLog = jsonString.substring(0, 500); 
 
   const fenceRegex = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/;
   const match = textToParse.match(fenceRegex);
@@ -21,7 +20,6 @@ function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): 
   if (match && match[1]) {
     textToParse = match[1].trim();
   }
-  const textToParseForLog = textToParse.substring(0,500);
 
   try {
     const parsed = JSON.parse(textToParse);
@@ -64,7 +62,7 @@ export const getGenre = async (ai: GoogleGenAI, lyrics: string): Promise<string>
     contents: prompt,
     config: { systemInstruction: CORE_PERSONA }
   });
-  return response.text.trim() || "Neznámý žánr";
+  return (typeof response.text === 'string' ? response.text.trim() : "Neznámý žánr");
 };
 
 export const getWeakSpots = async (ai: GoogleGenAI, lyrics: string): Promise<string[]> => {
@@ -77,7 +75,7 @@ export const getWeakSpots = async (ai: GoogleGenAI, lyrics: string): Promise<str
       responseMimeType: "application/json" 
     }
   });
-  return parseJsonSafely<string[]>(response.text, [], "getWeakSpots");
+  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getWeakSpots");
 };
 
 export const getTopArtists = async (ai: GoogleGenAI, genre: string): Promise<{ artists: string[], attributions?: GroundingAttribution[] }> => {
@@ -90,7 +88,7 @@ export const getTopArtists = async (ai: GoogleGenAI, genre: string): Promise<{ a
       tools: [{googleSearch: {}}]
     }
   });
-  const artists = response.text.trim().split(',').map(name => name.trim()).filter(Boolean);
+  const artists = (typeof response.text === 'string' ? response.text : '').trim().split(',').map(name => name.trim()).filter(Boolean);
   const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
   return { artists, attributions };
 };
@@ -105,7 +103,7 @@ export const getArtistAnalysis = async (ai: GoogleGenAI, artistName: string, gen
       tools: [{googleSearch: {}}] 
     }
   });
-  const analysis = response.text.trim();
+  const analysis = typeof response.text === 'string' ? response.text.trim() : '';
   const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
   return { analysis, attributions };
 };
@@ -132,7 +130,7 @@ Výstupem by měl být POUZE kompletní vylepšený text písně. Nepřidávej �
     contents: prompt,
     config: { systemInstruction: CORE_PERSONA }
   });
-  return response.text.trim();
+  return typeof response.text === 'string' ? response.text.trim() : '';
 };
 
 const SUNO_METATAGS_EXAMPLES = "[intro], [verse], [pre-chorus], [chorus], [hook], [bridge], [solo], [instrumental], [outro], [break], [interlude], [fade out], [male singer], [female singer], [rap], [spoken word], [scream], [whisper], [background vocals], [harmony], [ad libs], [tempo: 120], [key: Cmaj], [genre: pop], [mood: happy], [style: acoustic], [guitar solo], [piano intro], [energetic], [emotional], [upbeat], [slow build], [strings section], [drum fill], [quiet part], [loud part]";
@@ -157,7 +155,7 @@ Výstupem by měl být POUZE naformátovaný text písně pro Suno.ai. Nepřidá
     contents: prompt,
     config: { systemInstruction: CORE_PERSONA }
   });
-  let formatted = response.text.trim();
+  let formatted = typeof response.text === 'string' ? response.text.trim() : '';
   if (formatted.length > 3000) {
     formatted = formatted.substring(0, 2990) + "\n[TEXT ZKRÁCEN]"; 
   }
@@ -182,7 +180,7 @@ Výstupem by měl být POUZE text "Style of Music".
     contents: prompt,
     config: { systemInstruction: CORE_PERSONA }
   });
-  let style = response.text.trim();
+  let style = typeof response.text === 'string' ? response.text.trim() : '';
   if (style.length > 200) {
     style = style.substring(0, 197) + "...";
   }
@@ -205,7 +203,7 @@ ${lyrics}
       responseMimeType: "application/json" 
     }
   });
-  return parseJsonSafely<string[]>(response.text, [], "getRankedGenres");
+  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getRankedGenres");
 };
 
 export const getSimilarArtistsForGenre = async (ai: GoogleGenAI, lyrics: string, genre: string): Promise<string[]> => {
@@ -223,7 +221,7 @@ ${lyrics}
       responseMimeType: "application/json" 
     }
   });
-  return parseJsonSafely<string[]>(response.text, [], "getSimilarArtistsForGenre");
+  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getSimilarArtistsForGenre");
 };
 
 export const adjustLyricsToGenreAndArtist = async (
@@ -265,7 +263,7 @@ Vrať POUZE kompletní, nově přepsaný text písně. Nepřidávej žádné úv
       temperature: 0.7
     }
   });
-  return response.text.trim();
+  return typeof response.text === 'string' ? response.text.trim() : '';
 };
 
 export const analyzeArtistForStyleTransfer = async (ai: GoogleGenAI, artistName: string): Promise<ArtistStyleAnalysis> => {
@@ -283,7 +281,7 @@ Nepřidávej žádné další formátování, nadpisy ani markdown značky.`;
     }
   });
 
-  const responseText = response.text.trim();
+  const responseText = typeof response.text === 'string' ? response.text.trim() : '';
   const match = responseText.match(/Žánr:\s*([\s\S]*?)\s*Analýza:\s*([\s\S]*)/);
 
   let analysisData: { genre: string; analysis: string; };

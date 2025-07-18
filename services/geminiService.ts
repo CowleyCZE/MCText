@@ -66,7 +66,7 @@ export const getGenre = async (ai: GoogleGenAI, lyrics: string): Promise<string>
     contents: prompt,
     config: { systemInstruction: CORE_PERSONA }
   });
-  return response.text.trim() || "Neznámý žánr";
+  return (typeof response.text === 'string' ? response.text.trim() : "Neznámý žánr");
 };
 
 export const getWeakSpots = async (ai: GoogleGenAI, lyrics: string): Promise<string[]> => {
@@ -79,7 +79,7 @@ export const getWeakSpots = async (ai: GoogleGenAI, lyrics: string): Promise<str
       responseMimeType: "application/json" 
     }
   });
-  return parseJsonSafely<string[]>(response.text, [], "getWeakSpots");
+  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getWeakSpots");
 };
 
 export const getTopArtists = async (ai: GoogleGenAI, genre: string): Promise<{ artists: string[], attributions?: GroundingAttribution[] }> => {
@@ -92,7 +92,7 @@ export const getTopArtists = async (ai: GoogleGenAI, genre: string): Promise<{ a
       tools: [{googleSearch: {}}]
     }
   });
-  const artists = parseJsonSafely<string[]>(response.text, [], "getTopArtists");
+  const artists = parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getTopArtists");
   const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
   return { artists, attributions };
 };
@@ -107,7 +107,7 @@ export const getArtistAnalysis = async (ai: GoogleGenAI, artistName: string, gen
       tools: [{googleSearch: {}}] 
     }
   });
-  const analysis = response.text.trim();
+  const analysis = typeof response.text === 'string' ? response.text.trim() : '';
   const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
   return { analysis, attributions };
 };
@@ -134,7 +134,7 @@ Výstupem by měl být POUZE kompletní vylepšený text písně. Nepřidávej �
     contents: prompt,
     config: { systemInstruction: CORE_PERSONA }
   });
-  return response.text.trim();
+  return typeof response.text === 'string' ? response.text.trim() : '';
 };
 
 const SUNO_METATAGS_EXAMPLES = "[intro], [verse], [pre-chorus], [chorus], [hook], [bridge], [solo], [instrumental], [outro], [break], [interlude], [fade out], [male singer], [female singer], [rap], [spoken word], [scream], [whisper], [background vocals], [harmony], [ad libs], [tempo: 120], [key: Cmaj], [genre: pop], [mood: happy], [style: acoustic], [guitar solo], [piano intro], [energetic], [emotional], [upbeat], [slow build], [strings section], [drum fill], [quiet part], [loud part]";
@@ -185,7 +185,7 @@ Výstupem by měl být POUZE naformátovaný text písně pro Suno.ai. Nepřidá
     contents: prompt,
     config: { systemInstruction: CORE_PERSONA }
   });
-  let formatted = response.text.trim();
+  let formatted = typeof response.text === 'string' ? response.text.trim() : '';
   if (formatted.length > 3000) {
     console.warn("Suno naformátovaný text přesáhl 3000 znaků, text byl zkrácen.");
     formatted = formatted.substring(0, 2990) + "\n[TEXT ZKRÁCEN]"; 
@@ -211,7 +211,7 @@ Výstupem by měl být POUZE text "Style of Music".
     contents: prompt,
     config: { systemInstruction: CORE_PERSONA }
   });
-  let style = response.text.trim();
+  let style = typeof response.text === 'string' ? response.text.trim() : '';
   if (style.length > 200) {
      console.warn("Style of Music přesáhl 200 znaků, text byl zkrácen.");
     style = style.substring(0, 197) + "...";
@@ -235,7 +235,7 @@ ${lyrics}
       responseMimeType: "application/json" 
     }
   });
-  return parseJsonSafely<string[]>(response.text, [], "getRankedGenres");
+  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getRankedGenres");
 };
 
 export const getSimilarArtistsForGenre = async (ai: GoogleGenAI, lyrics: string, genre: string): Promise<string[]> => {
@@ -253,7 +253,7 @@ ${lyrics}
       responseMimeType: "application/json" 
     }
   });
-  return parseJsonSafely<string[]>(response.text, [], "getSimilarArtistsForGenre");
+  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getSimilarArtistsForGenre");
 };
 
 export const adjustLyricsToGenreAndArtist = async (
@@ -295,7 +295,7 @@ Vrať POUZE kompletní, nově přepsaný text písně. Nepřidávej žádné úv
       temperature: 0.7
     }
   });
-  return response.text.trim();
+  return typeof response.text === 'string' ? response.text.trim() : '';
 };
 
 export const analyzeArtistForStyleTransfer = async (ai: GoogleGenAI, artistName: string): Promise<ArtistStyleAnalysis> => {
@@ -311,7 +311,7 @@ export const analyzeArtistForStyleTransfer = async (ai: GoogleGenAI, artistName:
     }
   });
 
-  const analysisData = parseJsonSafely<{ genre: string; analysis: string; }>(response.text, { genre: 'Neznámý', analysis: 'Analýza se nezdařila.' }, "analyzeArtistForStyleTransfer");
+  const analysisData = parseJsonSafely<{ genre: string; analysis: string; }>(typeof response.text === 'string' ? response.text : '', { genre: 'Neznámý', analysis: 'Analýza se nezdařila.' }, "analyzeArtistForStyleTransfer");
   const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
   
   return { ...analysisData, attributions };

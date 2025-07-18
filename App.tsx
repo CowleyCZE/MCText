@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { LyricInput } from './components/LyricInput';
 import { AnalysisDisplay, GroundingAttributionsList, CopyButton, CharacterCount } from './components/AnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
@@ -18,8 +18,7 @@ import {
   getRankedGenres,
   getSimilarArtistsForGenre,
   adjustLyricsToGenreAndArtist,
-  analyzeArtistForStyleTransfer,
-  GEMINI_MODEL
+  analyzeArtistForStyleTransfer
 } from './services/geminiService';
 
 const App: React.FC = () => {

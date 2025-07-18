@@ -1,5 +1,10 @@
 
-import { db, appId } from '../firebase';
+// import { appId } from '../firebase';
+// Replace with the actual appId value or import the correct variable from your firebase.ts
+const appId = 'your-app-id-here'; // TODO: Replace with your actual appId
+import { getFirestore } from '@firebase/firestore';
+import { firebaseApp } from '../firebase'; // Make sure firebaseApp is exported from your firebase.ts
+const db = getFirestore(firebaseApp);
 import { collection, doc, getDoc, setDoc, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, FirestoreError } from '@firebase/firestore';
 import { sanitizeForFirebaseId } from '../utils';
 import type { ArtistStyleAnalysis, SavedLyricSession } from '../types';
