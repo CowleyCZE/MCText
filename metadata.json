@@ -1,0 +1,6 @@
+{
+  "name": "Copy of Suno 2",
+  "description": "An application to analyze song lyrics, identify weak spots, suggest improvements, find similar artists, and format lyrics for Suno.ai using Google Gemini API. All interactions are in Czech.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
