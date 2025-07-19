@@ -450,7 +450,7 @@ const App: React.FC = () => {
             API klíč pro Google Generative AI (Gemini) není správně nastaven v prostředí této aplikace.
           </p>
           <p className="text-slate-400 text-sm">
-            Pro správnou funkci aplikace je nezbytné, aby byla proměnná prostředí <code className="bg-slate-700 text-emerald-400 px-1.5 py-0.5 rounded-md font-mono text-xs">API_KEY</code> nastavena na platný klíč.
+            Pro správnou funkci aplikace je nezbytné, aby byla proměnná prostředí <code className="bg-slate-700 text-emerald-400 px-1.5 py-0.5 rounded-md font-mono text-xs">GEMINI_API_KEY</code> nastavena na platný klíč.
           </p>
         </div>
       </div>

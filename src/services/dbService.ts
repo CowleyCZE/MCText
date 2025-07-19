@@ -1,7 +1,7 @@
 
-// import { appId } from '../firebase';
+import { appId } from '../firebase';
 // Replace with the actual appId value or import the correct variable from your firebase.ts
-const appId = 'your-app-id-here'; // TODO: Replace with your actual appId
+// const appId = 'your-app-id-here'; // TODO: Replace with your actual appId
 import { getFirestore } from '@firebase/firestore';
 import { firebaseApp } from '../firebase'; // Make sure firebaseApp is exported from your firebase.ts
 const db = getFirestore(firebaseApp);
