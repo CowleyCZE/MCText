@@ -1,6 +1,5 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
 import { getAuth } from "firebase/auth";
 
 // Your web app's Firebase configuration
@@ -17,7 +16,8 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+// Pokud potřebujete Analytics, odkomentujte následující řádek:
+// const analytics = getAnalytics(app);
 export const auth = getAuth(app);
 // Export appId, aby ho mohl použít dbService.ts
 export const appId = firebaseConfig.appId;
