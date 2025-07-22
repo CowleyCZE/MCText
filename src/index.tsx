@@ -1,26 +1,3 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import MinimalApp from './App-minimal';
-
-// Global error handler
-window.addEventListener('error', (e) => {
-  console.error('Global error:', e.error);
-  console.error('Error details:', {
-    message: e.message,
-    filename: e.filename,
-    lineno: e.lineno,
-    colno: e.colno,
-    stack: e.error?.stack
-  });
-});
-
-window.addEventListener('unhandledrejection', (e) => {
-  console.error('Unhandled promise rejection:', e.reason);
-  e.preventDefault();
-});
-
-console.log('Starting application...');
-
 try {
   const rootElement = document.getElementById('root');
   if (!rootElement) {
@@ -80,3 +57,4 @@ try {
     `;
   }
 }
+
