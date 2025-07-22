@@ -19,6 +19,8 @@ const app = initializeApp(firebaseConfig);
 // Pokud potřebujete Analytics, odkomentujte následující řádek:
 // const analytics = getAnalytics(app);
 export const auth = getAuth(app);
+// Export firebaseApp for use in dbService.ts
+export const firebaseApp = app;
 // Export appId, aby ho mohl použít dbService.ts
 export const appId = firebaseConfig.appId;
 
