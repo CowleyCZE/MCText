@@ -1,3 +1,26 @@
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+
+// Global error handler
+window.addEventListener('error', (e) => {
+  console.error('Global error:', e.error);
+  console.error('Error details:', {
+    message: e.message,
+    filename: e.filename,
+    lineno: e.lineno,
+    colno: e.colno,
+    stack: e.error?.stack
+  });
+});
+
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('Unhandled promise rejection:', e.reason);
+  e.preventDefault();
+});
+
+console.log('Starting application...');
+
 try {
   const rootElement = document.getElementById('root');
   if (!rootElement) {
@@ -10,7 +33,7 @@ try {
   console.log('Rendering application...');
   root.render(
     <React.StrictMode>
-      <MinimalApp />
+      <App />
     </React.StrictMode>
   );
   
