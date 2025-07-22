@@ -34,13 +34,14 @@ export interface ArtistStyleAnalysis {
   attributions?: GroundingAttribution[];
 }
 
-export interface SavedLyricSession {
-  id: string; // Firestore document ID
+// Typ pro lokální cache session (nahrazuje Firebase SavedLyricSession)
+export interface CachedLyricSession {
+  id: string;
   title: string;
-  cleanedLyrics: string;
-  createdAt: any; // Firestore Timestamp
+  lyrics: string;
+  createdAt: number; // timestamp
   
-  // The state of the app when saved
+  // Cached analysis results
   analysisResults?: AnalysisResults | null; 
   artistAnalysisResult?: ArtistStyleAnalysis | null;
   adjustedLyricsByArtist?: string | null;

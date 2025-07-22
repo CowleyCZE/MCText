@@ -1,7 +1,43 @@
 
 import { GoogleGenAI, GenerateContentResponse, GroundingChunk } from "@google/genai";
 import type { GroundingAttribution, ArtistStyleAnalysis } from '../types'; // Local GroundingAttribution type
-import { CORE_PERSONA } from '../persona'; // Import core persona
+import { CORE_PERSONA, COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
+
+// Cache pro optimalizaci API volání
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+
+class OptimizedCache {
+  private cache = new Map<string, CacheEntry>();
+  private readonly TTL = 24 * 60 * 60 * 1000; // 24 hodin
+
+  set(key: string, data: any): void {
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+
+  get(key: string): any | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    
+    if (Date.now() - entry.timestamp > this.TTL) {
+      this.cache.delete(key);
+      return null;
+    }
+    
+    return entry.data;
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+const cache = new OptimizedCache();
 
 // Helper to parse grounding attributions
 const parseGroundingAttributions = (genAIAttributions: GroundingChunk[] | undefined): GroundingAttribution[] => {
@@ -13,82 +49,215 @@ const parseGroundingAttributions = (genAIAttributions: GroundingChunk[] | undefi
 
 function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): T {
   let textToParse = jsonString.trim();
-  const originalStringForLog = jsonString.substring(0, 500); 
-
+  
+  // Pokus o extrakci JSON z markdown bloků
   const fenceRegex = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/;
   const match = textToParse.match(fenceRegex);
 
   if (match && match[1]) {
     textToParse = match[1].trim();
   }
-  const textToParseForLog = textToParse.substring(0,500);
 
   try {
     const parsed = JSON.parse(textToParse);
     return parsed as T;
   } catch (error: any) {
+    // Pokus o extrakci prvního pole
     const arrayMatch = jsonString.match(/(\[[\s\S]*?\])/);
     if (arrayMatch && arrayMatch[1]) {
       try {
-        const parsedArray = JSON.parse(arrayMatch[1]);
-        return parsedArray as T;
-      } catch (e2) {
-        // console.warn(`[${context || 'JSON Parse'}] Fallback to parse first array also failed:`, e2);
-      }
+        return JSON.parse(arrayMatch[1]) as T;
+      } catch (e2) {}
     }
 
+    // Pokus o extrakci prvního objektu
     const objectMatch = jsonString.match(/(\{[\s\S]*?\})/);
     if (objectMatch && objectMatch[1]) {
       try {
-        const parsedObject = JSON.parse(objectMatch[1]);
-        return parsedObject as T;
-      } catch (e3) {
-        // console.warn(`[${context || 'JSON Parse'}] Fallback to parse first object also failed:`, e3);
-      }
+        return JSON.parse(objectMatch[1]) as T;
+      } catch (e3) {}
     }
     
-    console.error(
-        `[${context || 'JSON Parse'}] All JSON parsing attempts failed. Error: ${error.message}`,
-        "\nOriginal string (first 500 chars):", originalStringForLog,
-        "\nAttempted to parse (first 500 chars if fenced, else original):", textToParseForLog
-    );
+    console.error(`[${context || 'JSON Parse'}] JSON parsing failed: ${error.message}`);
     return fallback;
   }
 }
 
-
 export const GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"; // Export model name
 
-export const getGenre = async (ai: GoogleGenAI, lyrics: string): Promise<string> => {
-  const prompt = `Analyzuj následující text písně a urči nejvhodnější hudební žánr. Odpověz pouze názvem žánru (např. "Pop", "Rock", "Hip-Hop", "Folk", "Electronic"). Text písně:\n\n${lyrics}`;
+// Optimalizovaná verze - kombinuje více analýz do jednoho volání
+export const getComprehensiveAnalysis = async (ai: GoogleGenAI, lyrics: string): Promise<{
+  genre: string;
+  weakSpots: string[];
+  topArtists: { artists: string[], attributions?: GroundingAttribution[] };
+  rankedGenres: string[];
+}> => {
+  const cacheKey = `comprehensive-${Buffer.from(lyrics).toString('base64').slice(0, 50)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const prompt = `Analyzuj následující text písně komplexně. Vrať odpověď POUZE jako JSON objekt s těmito klíči:
+{
+  "genre": "hlavní doporučený žánr (string)",
+  "weakSpots": ["slabé části textu (array of strings)"],
+  "topArtists": ["5 top interpretů pro hlavní žánr (array of strings)"],
+  "rankedGenres": ["5-7 žánrů seřazených od nejvhodnějšího (array of strings)"]
+}
+
+Text písně:
+${lyrics}`;
+
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: GEMINI_MODEL,
     contents: prompt,
-    config: { systemInstruction: CORE_PERSONA }
+    config: { 
+      systemInstruction: `${ANALYSIS_PERSONA}\n\nVrať POUZE platný JSON objekt bez dalšího textu.`,
+      responseMimeType: "application/json",
+      tools: [{googleSearch: {}}]
+    }
   });
-  return (typeof response.text === 'string' ? response.text.trim() : "Neznámý žánr");
+
+  const result = parseJsonSafely(typeof response.text === 'string' ? response.text : '', {
+    genre: "Neznámý žánr",
+    weakSpots: [],
+    topArtists: [],
+    rankedGenres: []
+  }, "getComprehensiveAnalysis");
+
+  const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
+  
+  const finalResult = {
+    genre: result.genre,
+    weakSpots: result.weakSpots,
+    topArtists: { artists: result.topArtists, attributions },
+    rankedGenres: result.rankedGenres
+  };
+
+  cache.set(cacheKey, finalResult);
+  return finalResult;
+};
+
+// Optimalizovaná verze analýzy interpretů - paralelní zpracování
+export const getArtistAnalyses = async (ai: GoogleGenAI, artistNames: string[], genre: string): Promise<Array<{ analysis: string, attributions?: GroundingAttribution[] }>> => {
+  const promises = artistNames.map(async (artistName) => {
+    const cacheKey = `artist-analysis-${artistName.toLowerCase().trim()}-${genre.toLowerCase()}`;
+    const cached = cache.get(cacheKey);
+    if (cached) return cached;
+
+    const prompt = `Stručně analyzuj styl psaní textů interpreta "${artistName}" v žánru "${genre}". Max 3 věty. Zaměř se na klíčové charakteristiky jeho textů.`;
+    
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+      config: { 
+        systemInstruction: COMPACT_PERSONA,
+        tools: [{googleSearch: {}}] 
+      }
+    });
+    
+    const result = {
+      analysis: typeof response.text === 'string' ? response.text.trim() : '',
+      attributions: parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks)
+    };
+
+    cache.set(cacheKey, result);
+    return result;
+  });
+
+  return Promise.all(promises);
+};
+
+// Optimalizovaná verze vylepšení textů - kratší prompt
+export const getImprovedLyrics = async (ai: GoogleGenAI, originalLyrics: string, weakSpots: string[], genre: string, artistAnalyses: string[]): Promise<string> => {
+  const prompt = `Vylepši tento text pro žánr ${genre}:
+
+PŮVODNÍ TEXT:
+${originalLyrics}
+
+SLABINY: ${weakSpots.join(', ') || 'Bez specifických slabin'}
+STYL: Inspiruj se styly: ${artistAnalyses.slice(0, 3).join('; ')}
+
+Vrať POUZE vylepšený text bez komentářů.`;
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: prompt,
+    config: { systemInstruction: IMPROVEMENT_PERSONA }
+  });
+  
+  return typeof response.text === 'string' ? response.text.trim() : '';
+};
+
+// Optimalizovaná verze Suno formátování - kratší prompt s příklady
+export const getSunoFormattedLyrics = async (ai: GoogleGenAI, improvedLyrics: string, genre: string): Promise<string> => {
+  const prompt = `Naformátuj pro Suno.ai (žánr: ${genre}). Max 3000 znaků.
+
+VZOR:
+[intro]
+[verse]
+Text verše...
+[chorus]
+Text refrénu...
+[outro]
+
+TEXT K FORMÁTOVÁNÍ:
+${improvedLyrics}
+
+Vrať POUZE naformátovaný text s metatagy.`;
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: prompt,
+    config: { systemInstruction: SUNO_PERSONA }
+  });
+  
+  let formatted = typeof response.text === 'string' ? response.text.trim() : '';
+  if (formatted.length > 3000) {
+    formatted = formatted.substring(0, 2990) + "\n[ZKRÁCENO]"; 
+  }
+  return formatted;
+};
+
+// Optimalizovaná verze Style of Music - velmi kratký prompt
+export const getStyleOfMusic = async (ai: GoogleGenAI, sunoFormattedLyrics: string, genre: string): Promise<string> => {
+  const prompt = `"Style of Music" pro Suno.ai (max 200 znaků, anglicky):
+Žánr: ${genre}
+Příklad: "Upbeat pop rock with energetic drums"
+
+Vrať POUZE popis stylu:`;
+
+  const response: GenerateContentResponse = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: prompt,
+    config: { systemInstruction: COMPACT_PERSONA }
+  });
+  
+  let style = typeof response.text === 'string' ? response.text.trim() : '';
+  if (style.length > 200) {
+    style = style.substring(0, 197) + "...";
+  }
+  return style;
+};
+
+// Zachovávám původní funkce pro kompatibilitu
+export const getGenre = async (ai: GoogleGenAI, lyrics: string): Promise<string> => {
+  const analysis = await getComprehensiveAnalysis(ai, lyrics);
+  return analysis.genre;
 };
 
 export const getWeakSpots = async (ai: GoogleGenAI, lyrics: string): Promise<string[]> => {
-  const prompt = `Analyzuj následující text písně a identifikuj konkrétní slabé části, jako jsou klišé, neobratné formulace, nekonzistentní rýmy nebo špatně rozvinuté verše. Vrať svá zjištění POUZE jako JSON pole řetězců, kde každý řetězec popisuje jednu slabinu, bez jakéhokoliv dalšího textu nebo vysvětlení. Příklad odpovědi: ["Rým v druhé sloce je příliš vynucený.", "Refrén postrádá údernost."]. Text písně:\n\n${lyrics}`;
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { 
-      systemInstruction: CORE_PERSONA,
-      responseMimeType: "application/json" 
-    }
-  });
-  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getWeakSpots");
+  const analysis = await getComprehensiveAnalysis(ai, lyrics);
+  return analysis.weakSpots;
 };
 
 export const getTopArtists = async (ai: GoogleGenAI, genre: string): Promise<{ artists: string[], attributions?: GroundingAttribution[] }> => {
-  const prompt = `Vypiš 5 nejúspěšnějších a nejvlivnějších hudebních interpretů v žánru "${genre}". Zaměř se na současné umělce, pokud je to možné, ale zahrň i historicky významné, pokud jsou relevantní. Odpověz POUZE JSON polem řetězců obsahujícím jména interpretů, bez jakéhokoliv dalšího textu nebo vysvětlení. Příklad odpovědi: ["Artist A", "Artist B", "Artist C", "Artist D", "Artist E"]`;
+  // Pro kompatibilitu - v praxi použije výsledek z comprehensive analysis
+  const prompt = `Top 5 interpretů žánru "${genre}". JSON pole jmen: ["Artist1", "Artist2", ...]`;
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: GEMINI_MODEL,
     contents: prompt,
     config: { 
-      systemInstruction: CORE_PERSONA,
+      systemInstruction: COMPACT_PERSONA,
       tools: [{googleSearch: {}}]
     }
   });
@@ -98,162 +267,36 @@ export const getTopArtists = async (ai: GoogleGenAI, genre: string): Promise<{ a
 };
 
 export const getArtistAnalysis = async (ai: GoogleGenAI, artistName: string, genre: string): Promise<{ analysis: string, attributions?: GroundingAttribution[] }> => {
-  const prompt = `Pro interpreta "${artistName}" v žánru "${genre}" stručně analyzuj jeho typický styl psaní písní, lyrická témata a běžné struktury skladeb. Co činí jeho texty efektivními v tomto žánru? Poskytni stručnou analýzu (2-4 věty). Odpověz pouze textem analýzy.`;
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { 
-      systemInstruction: CORE_PERSONA,
-      tools: [{googleSearch: {}}] 
-    }
-  });
-  const analysis = typeof response.text === 'string' ? response.text.trim() : '';
-  const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
-  return { analysis, attributions };
-};
-
-export const getImprovedLyrics = async (ai: GoogleGenAI, originalLyrics: string, weakSpots: string[], genre: string, artistAnalyses: string[]): Promise<string> => {
-  const prompt = `Původní text písně:
---- Původní text ---
-${originalLyrics}
----
-Identifikované slabé části:
-- ${weakSpots.join('\n- ') || 'Žádné specifické slabiny nebyly automaticky identifikovány.'}
----
-Cílový žánr: ${genre}
----
-Postřehy od úspěšných interpretů žánru ${genre} (např. na základě analýz interpretů jako ${artistAnalyses.map(a => a.split(':')[0]).join(', ')}):
-${artistAnalyses.join('\n\n')}
----
-Přepiš a vylepši slabé části původního textu. Zachovej hlavní myšlenku a příběh, pokud je to možné, ale vylepši rýmy, rytmus, obraznost a emocionální dopad tak, aby text odpovídal stylu žánru ${genre}.
-Zaměř se na konkrétní vylepšení rýmů, frázování a celkové soudržnosti. Použij bohatší slovní zásobu, silnější obrazy a metafory relevantní k žánru.
-Výstupem by měl být POUZE kompletní vylepšený text písně. Nepřidávej žádné úvodní ani závěrečné fráze typu "Zde je vylepšený text:".
-`;
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { systemInstruction: CORE_PERSONA }
-  });
-  return typeof response.text === 'string' ? response.text.trim() : '';
-};
-
-const SUNO_METATAGS_EXAMPLES = "[intro], [verse], [pre-chorus], [chorus], [hook], [bridge], [solo], [instrumental], [outro], [break], [interlude], [fade out], [male singer], [female singer], [rap], [spoken word], [scream], [whisper], [background vocals], [harmony], [ad libs], [tempo: 120], [key: Cmaj], [genre: pop], [mood: happy], [style: acoustic], [guitar solo], [piano intro], [energetic], [emotional], [upbeat], [slow build], [strings section], [drum fill], [quiet part], [loud part]";
-
-export const getSunoFormattedLyrics = async (ai: GoogleGenAI, improvedLyrics: string, genre: string): Promise<string> => {
-  const prompt = `Vezmi následující vylepšený text písně a naformátuj ho pro Suno.ai.
-Cílový žánr je "${genre}".
-Vyber nejvhodnější metatagy Suno.ai (např. ${SUNO_METATAGS_EXAMPLES}) a správně je vlož do textu.
-DŮLEŽITÉ PRAVIDLO: Strukturální tagy jako [verse], [chorus], [intro], [outro], [bridge], [solo], [instrumental], [pre-chorus] MUSÍ být VŽDY na samostatném řádku.
-Ostatní popisné tagy (např. [male singer], [upbeat], [acoustic guitar]) mohou být na konci řádku textu nebo na samostatném řádku pod sekcí, kterou popisují, pokud to dává smysl.
-Finální text, včetně textu písně a metatagů, NESMÍ překročit 3000 znaků.
-Zajisti, aby metatagy byly použity efektivně pro strukturování písně a vyjádření její zamýšlené nálady a prvků. Nepoužívej nadbytečné nebo protichůdné tagy.
-Nevkládej žádné vysvětlující komentáře k metatagům, pouze metatagy samotné a text písně.
-
-Příklad správného formátování:
-[intro]
-(instrumental synth intro with a rising tension)
-
-[verse]
-V tichu noci hvězdy září jasně,
-Srdce mé tluče, čeká na tebe spásně.
-[female singer] [dreamy pads]
-
-[pre-chorus]
-Napětí roste, blíží se chvíle,
-Osud nás volá, míříme k cíli.
-
-[chorus]
-Tohle je náš moment, naše píseň zní!
-Láska a vášeň, co nikdy nespí!
-[energetic] [full band] [harmony vocals]
-
-[guitar solo]
-(melodický a emotivní kytarový sól)
-
-[outro]
-(hudba pomalu utichá, fade out with synth pads and whispered vocals)
-[fade out]
-
-Text písně k formátování:
---- Text písně ---
-${improvedLyrics}
----
-Výstupem by měl být POUZE naformátovaný text písně pro Suno.ai. Nepřidávej žádné úvodní ani závěrečné fráze jako "Zde je naformátovaný text:".
-`;
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { systemInstruction: CORE_PERSONA }
-  });
-  let formatted = typeof response.text === 'string' ? response.text.trim() : '';
-  if (formatted.length > 3000) {
-    console.warn("Suno naformátovaný text přesáhl 3000 znaků, text byl zkrácen.");
-    formatted = formatted.substring(0, 2990) + "\n[TEXT ZKRÁCEN]"; 
-  }
-  return formatted;
-};
-
-export const getStyleOfMusic = async (ai: GoogleGenAI, sunoFormattedLyrics: string, genre: string): Promise<string> => {
-  const prompt = `Na základě žánru "${genre}" a následujícího textu písně (včetně Suno.ai metatagů) napiš stručný popis "Style of Music" pro Suno.ai.
-Tento popis by měl být poutavý a přesně odrážet náladu a hudební charakteristiky písně.
-Popis NESMÍ překročit 200 znaků. Měl by být v angličtině, jak je pro Suno.ai obvyklé.
-Příklady: "Epic orchestral trailer music, cinematic, intense", "Chill lofi hip hop beat, relaxing, study music", "Upbeat 80s synthwave, retro, driving bassline", "Emotional acoustic ballad, heartfelt female vocals, strings".
-Nepřidávej žádné úvodní ani závěrečné fráze typu "Zde je návrh stylu hudby:".
-
-Text písně s metatagy:
---- Text písně ---
-${sunoFormattedLyrics}
----
-Výstupem by měl být POUZE text "Style of Music".
-`;
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { systemInstruction: CORE_PERSONA }
-  });
-  let style = typeof response.text === 'string' ? response.text.trim() : '';
-  if (style.length > 200) {
-     console.warn("Style of Music přesáhl 200 znaků, text byl zkrácen.");
-    style = style.substring(0, 197) + "...";
-  }
-  return style;
+  const analyses = await getArtistAnalyses(ai, [artistName], genre);
+  return analyses[0] || { analysis: '', attributions: [] };
 };
 
 export const getRankedGenres = async (ai: GoogleGenAI, lyrics: string): Promise<string[]> => {
-  const prompt = `Analyzuj tento text písně a navrhni 5 až 7 hudebních žánrů, ke kterým by se nejvíce hodil. 
-Seřaď je od nejvhodnějšího po nejméně vhodný. 
-Odpověz POUZE jako JSON pole řetězců s názvy žánrů. 
-Příklad odpovědi: ["Pop", "Indie Pop", "Synth Pop", "Rock", "Folk Rock", "Singer-Songwriter"]. Text písně:
----
-${lyrics}
----`;
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { 
-      systemInstruction: CORE_PERSONA,
-      responseMimeType: "application/json" 
-    }
-  });
-  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getRankedGenres");
+  const analysis = await getComprehensiveAnalysis(ai, lyrics);
+  return analysis.rankedGenres;
 };
 
 export const getSimilarArtistsForGenre = async (ai: GoogleGenAI, lyrics: string, genre: string): Promise<string[]> => {
-  const prompt = `Na základě následujícího textu písně a pro žánr '${genre}', navrhni 5 hudebních interpretů, kteří mají podobný styl psaní textů, témata nebo celkovou náladu.
-Odpověz POUZE jako JSON pole řetězců se jmény interpretů. 
-Příklad odpovědi: ["Artist X", "Artist Y", "Artist Z", "Artist A", "Artist B"]. Text písně:
----
-${lyrics}
----`;
+  const cacheKey = `similar-artists-${genre.toLowerCase()}-${Buffer.from(lyrics).toString('base64').slice(0, 30)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const prompt = `5 interpretů podobných stylu tohoto textu v žánru '${genre}'. JSON pole: ["Artist1", "Artist2", ...]
+
+Text: ${lyrics.substring(0, 500)}...`;
+  
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: GEMINI_MODEL,
     contents: prompt,
     config: { 
-      systemInstruction: CORE_PERSONA,
+      systemInstruction: COMPACT_PERSONA,
       responseMimeType: "application/json" 
     }
   });
-  return parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getSimilarArtistsForGenre");
+  
+  const result = parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getSimilarArtistsForGenre");
+  cache.set(cacheKey, result);
+  return result;
 };
 
 export const adjustLyricsToGenreAndArtist = async (
@@ -263,56 +306,97 @@ export const adjustLyricsToGenreAndArtist = async (
   artistName?: string | null,
   artistAnalysis?: string | null
 ): Promise<string> => {
-  const artistPromptPart = artistName && artistAnalysis
-    ? `Navíc se pokus co nejvěrněji napodobit styl psaní textů interpreta '${artistName}'. Jako hlavní vodítko pro jeho styl použij tuto expertní analýzu:
+  const cacheKey = `adjust-${targetGenre}-${artistName || 'none'}-${Buffer.from(originalLyrics).toString('base64').slice(0, 30)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
 
---- ANALÝZA STYLU: ${artistName} ---
-${artistAnalysis}
----
-`
+  const artistPrompt = artistName && artistAnalysis
+    ? `Styl: ${artistName} (${artistAnalysis})`
     : artistName
-    ? `Navíc se pokus co nejvěrněji napodobit styl psaní textů interpreta '${artistName}'. Zohledni jeho charakteristická témata, volbu slov, frázování, rytmus, používání lyrických prostředků a způsob vyprávění, jak je popsáno ve tvých znalostních bázích.`
+    ? `Styl: ${artistName}`
     : '';
 
-  const prompt = `Tvým úkolem je přepsat následující původní text písně.
-Cílový žánr je '${targetGenre}'.
-${artistPromptPart}
-Výsledný text by měl být nejen stylisticky přesný, ale také umělecky hodnotný, se silným emocionálním dopadem a originálními nápady.
-Zachovej základní myšlenku původního textu, pokud je to možné a vhodné.
+  const prompt = `Přepiš text pro žánr '${targetGenre}'. ${artistPrompt}
 
-Původní text k úpravě:
----
+PŮVODNÍ:
 ${originalLyrics}
----
 
-Vrať POUZE kompletní, nově přepsaný text písně. Nepřidávej žádné úvodní fráze, komentáře, vysvětlení, nadpisy ani původní text. Jen čistý text upravené písně.`;
+Vrať POUZE přepsaný text:`;
 
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: GEMINI_MODEL,
     contents: prompt,
     config: {
-      systemInstruction: CORE_PERSONA,
+      systemInstruction: IMPROVEMENT_PERSONA,
       temperature: 0.7
     }
   });
-  return typeof response.text === 'string' ? response.text.trim() : '';
+  
+  const result = typeof response.text === 'string' ? response.text.trim() : '';
+  cache.set(cacheKey, result);
+  return result;
 };
 
 export const analyzeArtistForStyleTransfer = async (ai: GoogleGenAI, artistName: string): Promise<ArtistStyleAnalysis> => {
-  const prompt = `Pro umělce "${artistName}" proveď podrobnou analýzu jeho stylu pro účely přepsání textu. Zjisti jeho primární hudební žánr a analyzuj jeho typický styl psaní textů: běžná témata, slovní zásobu, rýmovací schémata, strukturu písní a celkovou náladu. Odpověz POUZE jako JSON objekt s klíči "genre" (string) a "analysis" (string). Analýza by měla být dostatečně detailní (5-7 vět), aby posloužila jako kontext pro přepsání textu. Nepřidávej žádné další formátování ani markdown značky. Příklad odpovědi:
-{"genre": "Pop Rock", "analysis": "Texty se často zaměřují na osobní zážitky, zejména lásku a dospívání. Používá narativní styl, který vtáhne posluchače do příběhu. Rýmy jsou chytlavé a struktura písní obvykle sleduje klasický vzorec sloka-refrén s výrazným mostem."}`;
+  const cacheKey = `artist-style-${artistName.toLowerCase().trim()}`;
+  let cached = null;
+  
+  // Zkusím cache i localStorage pro zachování kompatibility
+  try {
+    const localStorageData = localStorage.getItem(`artist-analysis:${artistName.toLowerCase().trim()}`);
+    if (localStorageData) {
+      cached = JSON.parse(localStorageData);
+    }
+  } catch (e) {}
+  
+  if (!cached) {
+    cached = cache.get(cacheKey);
+  }
+  
+  if (cached) return cached;
+
+  const prompt = `Analýza stylu interpreta "${artistName}". JSON: {"genre": "žánr", "analysis": "analýza stylu (5-7 vět)"}`;
 
   const response: GenerateContentResponse = await ai.models.generateContent({
     model: GEMINI_MODEL,
     contents: prompt,
     config: { 
-      systemInstruction: CORE_PERSONA,
+      systemInstruction: ANALYSIS_PERSONA,
       tools: [{googleSearch: {}}]
     }
   });
 
-  const analysisData = parseJsonSafely<{ genre: string; analysis: string; }>(typeof response.text === 'string' ? response.text : '', { genre: 'Neznámý', analysis: 'Analýza se nezdařila.' }, "analyzeArtistForStyleTransfer");
+  const analysisData = parseJsonSafely<{ genre: string; analysis: string; }>(
+    typeof response.text === 'string' ? response.text : '', 
+    { genre: 'Neznámý', analysis: 'Analýza se nezdařila.' }, 
+    "analyzeArtistForStyleTransfer"
+  );
+  
   const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
   
-  return { ...analysisData, attributions };
+  const result = { ...analysisData, attributions };
+  
+  // Uložím do obou cachí
+  cache.set(cacheKey, result);
+  try {
+    localStorage.setItem(`artist-analysis:${artistName.toLowerCase().trim()}`, JSON.stringify(result));
+  } catch (e) {}
+  
+  return result;
+};
+
+// Nová optimalizovaná funkce pro kompletní analýzu v jednom volání
+export const getCompleteAnalysis = async (ai: GoogleGenAI, lyrics: string) => {
+  const comprehensive = await getComprehensiveAnalysis(ai, lyrics);
+  const artistAnalyses = await getArtistAnalyses(ai, comprehensive.topArtists.artists, comprehensive.genre);
+  
+  return {
+    ...comprehensive,
+    artistAnalyses
+  };
+};
+
+// Utility pro vyčištění cache
+export const clearCache = () => {
+  cache.clear();
 };
