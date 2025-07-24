@@ -1,7 +1,7 @@
 // src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
-// OPRAVA: Správný import pro GoogleGenerativeAI
-import { GoogleGenerativeAI } from "@google/genai";
+// OPRAVA: Změna na namespace import
+import * as genAI from "@google/genai";
 import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
@@ -56,16 +56,16 @@ const App: React.FC = () => {
   // Progress tracking pro lepší UX
   const [analysisProgress, setAnalysisProgress] = useState<string>('');
 
-  // OPRAVA: Správný typ pro instanci klienta
-  const [aiInstance, setAiInstance] = useState<GoogleGenerativeAI | null>(null);
+  // OPRAVA: Aktualizace typu pro instanci klienta
+  const [aiInstance, setAiInstance] = useState<genAI.GoogleGenerativeAI | null>(null);
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   useEffect(() => {
     const initializeApp = () => {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (apiKey) {
-        // OPRAVA: Správná inicializace klienta
-        const ai = new GoogleGenerativeAI(apiKey);
+        // OPRAVA: Správná inicializace klienta s použitím namespace
+        const ai = new genAI.GoogleGenerativeAI(apiKey);
         setAiInstance(ai);
         setIsAppReady(true);
       } else {
@@ -158,7 +158,6 @@ const App: React.FC = () => {
   const handleToggleGenreAdjustmentTool = () => {
     if (!isAppReady) return;
     if (showGenreAdjustmentTool) {
-      // OPRAVA: Místo clearAllResults() resetujeme jen relevantní stavy
       setShowGenreAdjustmentTool(false);
       setGenreAdjustmentStep(0);
       setAdjustedLyricsByGenre(null);
@@ -168,7 +167,6 @@ const App: React.FC = () => {
         setGenreAdjustmentError("Nejprve prosím vložte text písně do horního pole.");
         return;
       }
-      // Resetujeme předchozí výsledky, pokud nějaké jsou
       setAnalysisResults(null); 
       setShowGenreAdjustmentTool(true);
       setGenreAdjustmentError(null);
@@ -261,7 +259,6 @@ const App: React.FC = () => {
     }
     setIsArtistAnalysisLoading(true);
     setArtistAnalysisError(null);
-    // OPRAVA: Resetujeme jen relevantní stavy, ne úplně vše
     setAnalysisResults(null);
     setArtistAnalysisResult(null);
     setAdjustedLyricsByArtist(null);
@@ -477,8 +474,7 @@ const App: React.FC = () => {
                       <h4 className="font-semibold text-slate-200 mb-2">Upravený text (Žánr: {selectedGenreForAdjustment}{selectedArtistForAdjustment ? `, styl: ${selectedArtistForAdjustment}` : ''}):</h4>
                       <pre className="whitespace-pre-wrap text-slate-200 bg-slate-700 p-3 rounded-md max-h-96 overflow-y-auto">{adjustedLyricsByGenre}</pre>
                       <div className="flex items-center space-x-2">
-                        {/* CopyButton je nyní v OptimizedAnalysisDisplay, ale pro jednoduchost ho zde necháme */}
-                        <button onClick={() => navigator.clipboard.writeText(adjustedLyricsByGenre || '')} className="mt-2 px-4 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-md transition-colors text-xs">Kopírovat</button>
+                        <CopyButton textToCopy={adjustedLyricsByGenre} />
                         <button onClick={resetGenreAdjustment} className="mt-2 px-4 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors text-xs">Upravit znovu</button>
                       </div>
                     </div>
@@ -494,10 +490,12 @@ const App: React.FC = () => {
               <div className="bg-slate-700/50 p-4 rounded-lg">
                 <h4 className="font-semibold text-slate-200 mb-2">Analýza stylu (Žánr: {artistAnalysisResult.genre})</h4>
                 <p className="whitespace-pre-wrap text-slate-300 text-sm">{artistAnalysisResult.analysis}</p>
+                <GroundingAttributionsList attributions={artistAnalysisResult.attributions} />
               </div>
               <div className="bg-slate-700/50 p-4 rounded-lg space-y-3">
                  <div className="flex justify-between items-start">
                     <h4 className="font-semibold text-slate-200 pt-1">Upravený text písně</h4>
+                    <CopyButton textToCopy={adjustedLyricsByArtist} />
                 </div>
                 <pre className="whitespace-pre-wrap text-slate-200 bg-slate-900 p-3 rounded-md max-h-96 overflow-y-auto">
                     {adjustedLyricsByArtist}
@@ -522,8 +520,10 @@ const App: React.FC = () => {
                   <div className="bg-slate-700/50 p-4 rounded-lg space-y-2">
                       <div className="flex justify-between items-start">
                           <h4 className="font-semibold text-slate-200 pt-1">Text pro Suno.ai (s metatagy)</h4>
+                          <CopyButton textToCopy={sunoFormattedArtistLyrics} />
                       </div>
                       <pre className="whitespace-pre-wrap text-slate-200 bg-slate-900 p-4 rounded-md max-h-96 overflow-y-auto">{sunoFormattedArtistLyrics}</pre>
+                      <CharacterCount text={sunoFormattedArtistLyrics} limit={SUNO_AI_LYRICS_MAX_CHARS} />
                   </div>
               )}
             </div>
