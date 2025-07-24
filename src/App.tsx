@@ -54,10 +54,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initializeApp = () => {
-      // FIX: Use import.meta.env.VITE_GEMINI_API_KEY directly as process.env.API_KEY can be stringified with quotes.
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (apiKey) {
-        const ai = new GoogleGenAI(apiKey);
+        // OPRAVA: Inicializace klienta pomocí konfiguračního objektu dle zadání.
+        const ai = new GoogleGenAI({ apiKey });
         setAiInstance(ai);
         setIsAppReady(true);
       } else {
@@ -122,7 +122,6 @@ const App: React.FC = () => {
       // Formátování pro Suno a Style of Music
       const [sunoFormatted, styleOfMusic] = await Promise.all([
         getSunoFormattedLyrics(aiInstance, improvedLyrics, comprehensive.genre),
-        // FIX: Pass only 'aiInstance' and 'genre' to getStyleOfMusic as per its signature in geminiService.ts
         getStyleOfMusic(aiInstance, comprehensive.genre)
       ]);
 
