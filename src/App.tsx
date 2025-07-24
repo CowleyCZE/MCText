@@ -1,7 +1,7 @@
 // src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
 // OPRAVA: Správný import pro GoogleGenerativeAI
-import { GoogleGenerativeAI } from "@google/genai";
+import GoogleGenerativeAI from '@google/generative-ai'; // Assuming the default export is the GoogleGenerativeAI class
 import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
