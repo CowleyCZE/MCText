@@ -1,4 +1,4 @@
-
+// src/services/geminiService.ts
 import { GoogleGenAI, GenerateContentResponse, GroundingChunk } from "@google/genai";
 import type { GroundingAttribution, ArtistStyleAnalysis } from '../types'; // Local GroundingAttribution type
 import { COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
@@ -219,6 +219,8 @@ Vrať POUZE naformátovaný text s metatagy.`;
 };
 
 // Optimalizovaná verze Style of Music - velmi kratký prompt
+// FIX: The prompt for getStyleOfMusic does not need sunoFormattedLyrics, only genre.
+// Removed sunoFormattedLyrics from parameters.
 export const getStyleOfMusic = async (ai: GoogleGenAI, genre: string): Promise<string> => {
   const prompt = `"Style of Music" pro Suno.ai (max 200 znaků, anglicky):
 Žánr: ${genre}
