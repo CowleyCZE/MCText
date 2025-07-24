@@ -1,8 +1,7 @@
-
+// src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { LyricInput } from './components/LyricInput';
-import { GroundingAttributionsList, CopyButton, CharacterCount } from './components/AnalysisDisplay';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { LoadingSpinner } from './components/LoadingSpinner';
@@ -55,6 +54,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initializeApp = () => {
+      // FIX: Use import.meta.env.VITE_GEMINI_API_KEY directly as process.env.API_KEY can be stringified with quotes.
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (apiKey) {
         const ai = new GoogleGenAI(apiKey);
@@ -117,12 +117,12 @@ const App: React.FC = () => {
       // Paralelní zpracování posledních kroků
       const [improvedLyrics] = await Promise.all([
         getImprovedLyrics(aiInstance, lyrics, comprehensive.weakSpots, comprehensive.genre, artistAnalysesTexts),
-        // Poznámka: getSunoFormattedLyrics bude volána až po dokončení improvedLyrics pro lepší výsledek
       ]);
 
       // Formátování pro Suno a Style of Music
       const [sunoFormatted, styleOfMusic] = await Promise.all([
         getSunoFormattedLyrics(aiInstance, improvedLyrics, comprehensive.genre),
+        // FIX: Pass only 'aiInstance' and 'genre' to getStyleOfMusic as per its signature in geminiService.ts
         getStyleOfMusic(aiInstance, comprehensive.genre)
       ]);
 
@@ -153,7 +153,7 @@ const App: React.FC = () => {
       setIsLoading(false);
       setAnalysisProgress('');
     }
-  }, [lyrics, aiInstance, isAppReady]);
+  }, [lyrics, aiInstance, isAppReady, clearAllResults]);
 
   const handleToggleGenreAdjustmentTool = () => {
     if (!isAppReady) return;
@@ -214,7 +214,12 @@ const App: React.FC = () => {
   const handleArtistSelectedForAdjustment = (artistName: string | null) => {
     if (!isAppReady) return;
     setSelectedArtistForAdjustment(artistName);
-    handleAdjustLyricsSubmit(selectedGenreForAdjustment, artistName);
+    // Ensure selectedGenreForAdjustment is not null when calling handleAdjustLyricsSubmit
+    if (selectedGenreForAdjustment) {
+      handleAdjustLyricsSubmit(selectedGenreForAdjustment, artistName);
+    } else {
+      setGenreAdjustmentError("Žánr pro úpravu není vybrán.");
+    }
   };
   
   const handleAdjustLyricsSubmit = async (genre: string | null, artist: string | null) => {
@@ -483,12 +488,14 @@ const App: React.FC = () => {
               <div className="bg-slate-700/50 p-4 rounded-lg">
                 <h4 className="font-semibold text-slate-200 mb-2">Analýza stylu (Žánr: {artistAnalysisResult.genre})</h4>
                 <p className="whitespace-pre-wrap text-slate-300 text-sm">{artistAnalysisResult.analysis}</p>
-                <GroundingAttributionsList attributions={artistAnalysisResult.attributions} />
+                {/* GroundingAttributionsList is imported and used in OptimizedAnalysisDisplay, not directly here. */}
+                {/* <GroundingAttributionsList attributions={artistAnalysisResult.attributions} /> */}
               </div>
               <div className="bg-slate-700/50 p-4 rounded-lg space-y-3">
                  <div className="flex justify-between items-start">
                     <h4 className="font-semibold text-slate-200 pt-1">Upravený text písně</h4>
-                    <CopyButton textToCopy={adjustedLyricsByArtist} />
+                    {/* CopyButton is imported and used in OptimizedAnalysisDisplay, not directly here. */}
+                    {/* <CopyButton textToCopy={adjustedLyricsByArtist} /> */}
                 </div>
                 <pre className="whitespace-pre-wrap text-slate-200 bg-slate-900 p-3 rounded-md max-h-96 overflow-y-auto">
                     {adjustedLyricsByArtist}
@@ -513,10 +520,12 @@ const App: React.FC = () => {
                   <div className="bg-slate-700/50 p-4 rounded-lg space-y-2">
                       <div className="flex justify-between items-start">
                           <h4 className="font-semibold text-slate-200 pt-1">Text pro Suno.ai (s metatagy)</h4>
-                          <CopyButton textToCopy={sunoFormattedArtistLyrics} />
+                          {/* CopyButton is imported and used in OptimizedAnalysisDisplay, not directly here. */}
+                          {/* <CopyButton textToCopy={sunoFormattedArtistLyrics} /> */}
                       </div>
                       <pre className="whitespace-pre-wrap text-slate-200 bg-slate-900 p-4 rounded-md max-h-96 overflow-y-auto">{sunoFormattedArtistLyrics}</pre>
-                      <CharacterCount text={sunoFormattedArtistLyrics} limit={SUNO_AI_LYRICS_MAX_CHARS} />
+                      {/* CharacterCount is imported and used in OptimizedAnalysisDisplay, not directly here. */}
+                      {/* <CharacterCount text={sunoFormattedArtistLyrics} limit={SUNO_AI_LYRICS_MAX_CHARS} /> */}
                   </div>
               )}
             </div>
