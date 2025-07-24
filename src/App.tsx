@@ -1,6 +1,7 @@
 // src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
+import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
@@ -18,6 +19,11 @@ import {
   analyzeArtistForStyleTransfer,
   clearCache
 } from './services/geminiService';
+
+// Nastavení globálního Bufferu pro polyfill
+if (typeof window !== 'undefined') {
+  window.Buffer = Buffer;
+}
 
 const App: React.FC = () => {
   const [lyrics, setLyrics] = useState<string>('');
