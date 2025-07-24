@@ -1,9 +1,9 @@
 import React from 'react';
-import type { SavedLyricSession } from '../types';
+import type { CachedLyricSession } from '../types';
 
 interface SavedLyricsManagerProps {
-  sessions: SavedLyricSession[];
-  onLoad: (session: SavedLyricSession) => void;
+  sessions: CachedLyricSession[];
+  onLoad: (session: CachedLyricSession) => void;
   onDelete: (sessionId: string, sessionTitle: string) => void;
   isLoading: boolean;
 }
@@ -24,7 +24,7 @@ export const SavedLyricsManager: React.FC<SavedLyricsManagerProps> = ({ sessions
                 {session.title}
               </p>
               <p className="text-xs text-slate-400">
-                {session.createdAt?.toDate ? session.createdAt.toDate().toLocaleString('cs-CZ') : 'Právě teď'}
+                                {new Date(session.createdAt).toLocaleString('cs-CZ')}
               </p>
             </div>
             <div className="flex-shrink-0 flex gap-2">

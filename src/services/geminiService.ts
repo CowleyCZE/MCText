@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, GenerateContentResponse, GroundingChunk } from "@google/genai";
 import type { GroundingAttribution, ArtistStyleAnalysis } from '../types'; // Local GroundingAttribution type
-import { CORE_PERSONA, COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
+import { COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
 
 // Cache pro optimalizaci API volání
 interface CacheEntry {
@@ -219,7 +219,7 @@ Vrať POUZE naformátovaný text s metatagy.`;
 };
 
 // Optimalizovaná verze Style of Music - velmi kratký prompt
-export const getStyleOfMusic = async (ai: GoogleGenAI, sunoFormattedLyrics: string, genre: string): Promise<string> => {
+export const getStyleOfMusic = async (ai: GoogleGenAI, genre: string): Promise<string> => {
   const prompt = `"Style of Music" pro Suno.ai (max 200 znaků, anglicky):
 Žánr: ${genre}
 Příklad: "Upbeat pop rock with energetic drums"

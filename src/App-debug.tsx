@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, Component } from 'react';
+import React, { useState, useEffect, Component } from 'react';
 
 // Error Boundary component
 class ErrorBoundary extends Component<
@@ -51,7 +51,7 @@ const DebugApp: React.FC = () => {
 
   useEffect(() => {
     // Check API key
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
     if (apiKey) {
       setApiKeyStatus('✅ API klíč nalezen');
     } else {
@@ -180,16 +180,16 @@ const TestComponents: React.FC<{ onNext: () => void }> = ({ onNext }) => {
     const testComponents = async () => {
       try {
         // Test základních importů
-        const { KNOWLEDGE_BASE_SECTIONS } = await import('./constants');
+        const {  } = await import('./constants');
         setComponentsLoaded(prev => [...prev, 'constants']);
 
-        const { LoadingSpinner } = await import('./components/LoadingSpinner');
+        const {  } = await import('./components/LoadingSpinner');
         setComponentsLoaded(prev => [...prev, 'LoadingSpinner']);
 
-        const { LyricInput } = await import('./components/LyricInput');
+        const {  } = await import('./components/LyricInput');
         setComponentsLoaded(prev => [...prev, 'LyricInput']);
 
-        const { AnalysisDisplay } = await import('./components/AnalysisDisplay');
+        const {  } = await import('./components/AnalysisDisplay');
         setComponentsLoaded(prev => [...prev, 'AnalysisDisplay']);
 
       } catch (error) {

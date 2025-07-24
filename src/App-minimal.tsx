@@ -7,7 +7,7 @@ const MinimalApp = () => {
     console.log('MinimalApp mounted successfully');
     
     // Test API key
-    const apiKey = (window as any).import?.meta?.env?.VITE_GEMINI_API_KEY || process.env.API_KEY;
+    const apiKey = (window as any).import?.meta?.env?.VITE_GEMINI_API_KEY;
     console.log('API key check:', apiKey ? 'Found' : 'Missing');
     
     // Test environment

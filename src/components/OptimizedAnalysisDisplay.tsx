@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import type { AnalysisResults, ArtistInfo, GroundingAttribution } from '../types';
+import type { AnalysisResults, ArtistInfo } from '../types';
 import { SUNO_AI_LYRICS_MAX_CHARS, SUNO_AI_STYLE_MAX_CHARS } from '../constants';
 import { CopyButton, CharacterCount, GroundingAttributionsList } from './AnalysisDisplay';
 

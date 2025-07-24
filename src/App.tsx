@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { LyricInput } from './components/LyricInput';
-import { AnalysisDisplay, GroundingAttributionsList, CopyButton, CharacterCount } from './components/AnalysisDisplay';
+import { GroundingAttributionsList, CopyButton, CharacterCount } from './components/AnalysisDisplay';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { LoadingSpinner } from './components/LoadingSpinner';
@@ -55,7 +55,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initializeApp = () => {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (apiKey) {
         const ai = new GoogleGenAI(apiKey);
         setAiInstance(ai);
@@ -115,7 +115,7 @@ const App: React.FC = () => {
       const artistAnalysesTexts = topArtists.map(a => `${a.name}: ${a.analysis || 'N/A'}`);
       
       // Paralelní zpracování posledních kroků
-      const [improvedLyrics, sunoFormattedLyrics] = await Promise.all([
+      const [improvedLyrics] = await Promise.all([
         getImprovedLyrics(aiInstance, lyrics, comprehensive.weakSpots, comprehensive.genre, artistAnalysesTexts),
         // Poznámka: getSunoFormattedLyrics bude volána až po dokončení improvedLyrics pro lepší výsledek
       ]);
@@ -123,7 +123,7 @@ const App: React.FC = () => {
       // Formátování pro Suno a Style of Music
       const [sunoFormatted, styleOfMusic] = await Promise.all([
         getSunoFormattedLyrics(aiInstance, improvedLyrics, comprehensive.genre),
-        getStyleOfMusic(aiInstance, improvedLyrics, comprehensive.genre)
+        getStyleOfMusic(aiInstance, comprehensive.genre)
       ]);
 
       const finalResults: AnalysisResults = {
