@@ -1,12 +1,13 @@
 // src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
+// OPRAVA: Správný import pro GoogleGenerativeAI
+import { GoogleGenerativeAI } from "@google/genai";
 import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { LoadingSpinner } from './components/LoadingSpinner';
-import { KNOWLEDGE_BASE_SECTIONS, SUNO_AI_LYRICS_MAX_CHARS } from './constants';
+import { KNOWLEDGE_BASE_SECTIONS } from './constants';
 import type { AnalysisResults, ArtistInfo, ArtistStyleAnalysis } from './types';
 import { 
   getComprehensiveAnalysis,
@@ -22,7 +23,7 @@ import {
 
 // Nastavení globálního Bufferu pro polyfill
 if (typeof window !== 'undefined') {
-  window.Buffer = Buffer;
+  (window as any).Buffer = Buffer;
 }
 
 const App: React.FC = () => {
@@ -55,15 +56,16 @@ const App: React.FC = () => {
   // Progress tracking pro lepší UX
   const [analysisProgress, setAnalysisProgress] = useState<string>('');
 
-  const [aiInstance, setAiInstance] = useState<GoogleGenAI | null>(null);
+  // OPRAVA: Správný typ pro instanci klienta
+  const [aiInstance, setAiInstance] = useState<GoogleGenerativeAI | null>(null);
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   useEffect(() => {
     const initializeApp = () => {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       if (apiKey) {
-        // OPRAVA: Inicializace klienta pomocí konfiguračního objektu dle zadání.
-        const ai = new GoogleGenAI({ apiKey });
+        // OPRAVA: Správná inicializace klienta
+        const ai = new GoogleGenerativeAI(apiKey);
         setAiInstance(ai);
         setIsAppReady(true);
       } else {
@@ -102,15 +104,12 @@ const App: React.FC = () => {
     clearAllResults();
 
     try {
-      // Krok 1: Získání komprehensivní analýzy (1 API volání místo 4)
       setAnalysisProgress('Analyzuji text písně...');
       const comprehensive = await getComprehensiveAnalysis(aiInstance, lyrics);
       
-      // Krok 2: Paralelní získání analýz interpretů
       setAnalysisProgress('Analyzuji styly interpretů...');
       const artistAnalyses = await getArtistAnalyses(aiInstance, comprehensive.topArtists.artists, comprehensive.genre);
       
-      // Krok 3: Paralelní zpracování vylepšení a formátování
       setAnalysisProgress('Vylepšuji text a připravuji formáty...');
       const topArtists: ArtistInfo[] = comprehensive.topArtists.artists.map((name, index) => ({
         name,
@@ -120,12 +119,8 @@ const App: React.FC = () => {
 
       const artistAnalysesTexts = topArtists.map(a => `${a.name}: ${a.analysis || 'N/A'}`);
       
-      // Paralelní zpracování posledních kroků
-      const [improvedLyrics] = await Promise.all([
-        getImprovedLyrics(aiInstance, lyrics, comprehensive.weakSpots, comprehensive.genre, artistAnalysesTexts),
-      ]);
+      const improvedLyrics = await getImprovedLyrics(aiInstance, lyrics, comprehensive.weakSpots, comprehensive.genre, artistAnalysesTexts);
 
-      // Formátování pro Suno a Style of Music
       const [sunoFormatted, styleOfMusic] = await Promise.all([
         getSunoFormattedLyrics(aiInstance, improvedLyrics, comprehensive.genre),
         getStyleOfMusic(aiInstance, comprehensive.genre)
@@ -185,7 +180,6 @@ const App: React.FC = () => {
     setGenreAdjustmentError(null);
     setRankedGenres([]);
     try {
-      // Využívám optimalizovanou funkci, která už má žánry v cache
       const comprehensive = await getComprehensiveAnalysis(aiInstance, lyrics);
       setRankedGenres(comprehensive.rankedGenres);
       setGenreAdjustmentStep(1); 
@@ -219,7 +213,6 @@ const App: React.FC = () => {
   const handleArtistSelectedForAdjustment = (artistName: string | null) => {
     if (!isAppReady) return;
     setSelectedArtistForAdjustment(artistName);
-    // Ensure selectedGenreForAdjustment is not null when calling handleAdjustLyricsSubmit
     if (selectedGenreForAdjustment) {
       handleAdjustLyricsSubmit(selectedGenreForAdjustment, artistName);
     } else {
@@ -266,7 +259,6 @@ const App: React.FC = () => {
     clearAllResults();
 
     try {
-      // Využívám optimalizované cachování
       const analysis = await analyzeArtistForStyleTransfer(aiInstance, artistNameForAnalysis);
       setArtistAnalysisResult(analysis);
       
@@ -299,7 +291,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Funkce pro vyčištění cache
   const handleClearCache = () => {
     clearCache();
     alert('Cache byla vyčištěna!');
