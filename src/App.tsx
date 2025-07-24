@@ -1,7 +1,7 @@
 // src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
 // OPRAVA: Správný import pro GoogleGenerativeAI
-import { GoogleGenerativeAI } from '@google/generative-ai'; // Assuming the default export is the GoogleGenerativeAI class
+import { GoogleGenerativeAI } from "@google/genai";
 import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
@@ -158,13 +158,18 @@ const App: React.FC = () => {
   const handleToggleGenreAdjustmentTool = () => {
     if (!isAppReady) return;
     if (showGenreAdjustmentTool) {
-      clearAllResults();
+      // OPRAVA: Místo clearAllResults() resetujeme jen relevantní stavy
+      setShowGenreAdjustmentTool(false);
+      setGenreAdjustmentStep(0);
+      setAdjustedLyricsByGenre(null);
+      setGenreAdjustmentError(null);
     } else {
       if (!lyrics.trim()) {
         setGenreAdjustmentError("Nejprve prosím vložte text písně do horního pole.");
         return;
       }
-      clearAllResults();
+      // Resetujeme předchozí výsledky, pokud nějaké jsou
+      setAnalysisResults(null); 
       setShowGenreAdjustmentTool(true);
       setGenreAdjustmentError(null);
       handleFetchRankedGenres();
@@ -256,7 +261,11 @@ const App: React.FC = () => {
     }
     setIsArtistAnalysisLoading(true);
     setArtistAnalysisError(null);
-    clearAllResults();
+    // OPRAVA: Resetujeme jen relevantní stavy, ne úplně vše
+    setAnalysisResults(null);
+    setArtistAnalysisResult(null);
+    setAdjustedLyricsByArtist(null);
+    setSunoFormattedArtistLyrics(null);
 
     try {
       const analysis = await analyzeArtistForStyleTransfer(aiInstance, artistNameForAnalysis);
@@ -296,7 +305,7 @@ const App: React.FC = () => {
     alert('Cache byla vyčištěna!');
   };
 
-  if (isApiKeyMissing && !import.meta.env.VITE_GEMINI_API_KEY) { 
+  if (isApiKeyMissing) { 
     return (
       <div className="min-h-screen bg-slate-900 container mx-auto p-4 md:p-8 flex flex-col items-center justify-center text-center">
         <div className="bg-slate-800 p-8 rounded-lg shadow-2xl max-w-md w-full">
@@ -324,7 +333,7 @@ const App: React.FC = () => {
         <p className="text-slate-400 text-lg">
           Analyzujte, vylepšete a připravte své texty pro Suno.ai! (Optimalizovaná verze)
         </p>
-        {process.env.NODE_ENV === 'development' && (
+        {import.meta.env.DEV && (
           <button
             onClick={handleClearCache}
             className="mt-2 px-3 py-1 text-xs bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
@@ -340,7 +349,7 @@ const App: React.FC = () => {
             lyrics={lyrics}
             onLyricsChange={(newLyrics) => {
               setLyrics(newLyrics);
-              clearAllResults();
+              if (analysisResults) setAnalysisResults(null);
             }}
             onProcess={handleProcessLyrics}
             isLoading={isLoading || !isAppReady || isGenreAdjustmentLoading || isArtistAnalysisLoading}
@@ -468,7 +477,8 @@ const App: React.FC = () => {
                       <h4 className="font-semibold text-slate-200 mb-2">Upravený text (Žánr: {selectedGenreForAdjustment}{selectedArtistForAdjustment ? `, styl: ${selectedArtistForAdjustment}` : ''}):</h4>
                       <pre className="whitespace-pre-wrap text-slate-200 bg-slate-700 p-3 rounded-md max-h-96 overflow-y-auto">{adjustedLyricsByGenre}</pre>
                       <div className="flex items-center space-x-2">
-                        <CopyButton textToCopy={adjustedLyricsByGenre} />
+                        {/* CopyButton je nyní v OptimizedAnalysisDisplay, ale pro jednoduchost ho zde necháme */}
+                        <button onClick={() => navigator.clipboard.writeText(adjustedLyricsByGenre || '')} className="mt-2 px-4 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-md transition-colors text-xs">Kopírovat</button>
                         <button onClick={resetGenreAdjustment} className="mt-2 px-4 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-md transition-colors text-xs">Upravit znovu</button>
                       </div>
                     </div>
@@ -484,14 +494,10 @@ const App: React.FC = () => {
               <div className="bg-slate-700/50 p-4 rounded-lg">
                 <h4 className="font-semibold text-slate-200 mb-2">Analýza stylu (Žánr: {artistAnalysisResult.genre})</h4>
                 <p className="whitespace-pre-wrap text-slate-300 text-sm">{artistAnalysisResult.analysis}</p>
-                {/* GroundingAttributionsList is imported and used in OptimizedAnalysisDisplay, not directly here. */}
-                {/* <GroundingAttributionsList attributions={artistAnalysisResult.attributions} /> */}
               </div>
               <div className="bg-slate-700/50 p-4 rounded-lg space-y-3">
                  <div className="flex justify-between items-start">
                     <h4 className="font-semibold text-slate-200 pt-1">Upravený text písně</h4>
-                    {/* CopyButton is imported and used in OptimizedAnalysisDisplay, not directly here. */}
-                    {/* <CopyButton textToCopy={adjustedLyricsByArtist} /> */}
                 </div>
                 <pre className="whitespace-pre-wrap text-slate-200 bg-slate-900 p-3 rounded-md max-h-96 overflow-y-auto">
                     {adjustedLyricsByArtist}
@@ -516,12 +522,8 @@ const App: React.FC = () => {
                   <div className="bg-slate-700/50 p-4 rounded-lg space-y-2">
                       <div className="flex justify-between items-start">
                           <h4 className="font-semibold text-slate-200 pt-1">Text pro Suno.ai (s metatagy)</h4>
-                          {/* CopyButton is imported and used in OptimizedAnalysisDisplay, not directly here. */}
-                          {/* <CopyButton textToCopy={sunoFormattedArtistLyrics} /> */}
                       </div>
                       <pre className="whitespace-pre-wrap text-slate-200 bg-slate-900 p-4 rounded-md max-h-96 overflow-y-auto">{sunoFormattedArtistLyrics}</pre>
-                      {/* CharacterCount is imported and used in OptimizedAnalysisDisplay, not directly here. */}
-                      {/* <CharacterCount text={sunoFormattedArtistLyrics} limit={SUNO_AI_LYRICS_MAX_CHARS} /> */}
                   </div>
               )}
             </div>
