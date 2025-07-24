@@ -8,6 +8,8 @@ export default defineConfig({
     // Přístup k environment variables
     'process.env.API_KEY': JSON.stringify(process.env.VITE_GEMINI_API_KEY),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
+    // Definice globální proměnné pro Buffer polyfill
+    'global': 'window',
   },
   resolve: {
     alias: {
