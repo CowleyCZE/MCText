@@ -1,6 +1,6 @@
 // src/services/geminiService.ts
-import { GoogleGenerativeAI, GenerateContentResult, GroundingChunk } from "@google/genai";
-import type { GroundingAttribution, ArtistStyleAnalysis } from '../types'; // Local GroundingAttribution type
+import { GoogleGenerativeAI, GenerateContentResult } from "@google/genai";
+import type { GroundingAttribution, ArtistStyleAnalysis } from '../types';
 import { COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
 
 // Cache pro optimalizaci API volání
@@ -45,8 +45,9 @@ const parseGroundingAttributionsFromResult = (result: GenerateContentResult): Gr
   if (!chunks) return [];
   return chunks.map(attr => ({
     web: attr.web ? { uri: attr.web.uri || '', title: attr.web.title || '' } : undefined,
-  })).filter(attr => attr.web && (attr.web.uri || attr.web.title)); 
+  })).filter((attr): attr is { web: { uri: string; title: string; } } => !!attr.web && (!!attr.web.uri || !!attr.web.title)); 
 };
+
 
 function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): T {
   let textToParse = jsonString.trim();
@@ -66,14 +67,18 @@ function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): 
     if (arrayMatch && arrayMatch[1]) {
       try {
         return JSON.parse(arrayMatch[1]) as T;
-      } catch (e2) {}
+      } catch (e2) {
+        // ignore
+      }
     }
 
     const objectMatch = jsonString.match(/(\{[\s\S]*?\})/);
     if (objectMatch && objectMatch[1]) {
       try {
         return JSON.parse(objectMatch[1]) as T;
-      } catch (e3) {}
+      } catch (e3) {
+        // ignore
+      }
     }
     
     console.error(`[${context || 'JSON Parse'}] JSON parsing failed: ${error.message}`);
@@ -106,7 +111,6 @@ export const getComprehensiveAnalysis = async (ai: GoogleGenerativeAI, lyrics: s
 Text písně:
 ${lyrics}`;
 
-  // OPRAVA: Správný způsob volání API podle aktuální verze @google/genai
   const model = ai.getGenerativeModel({
     model: GEMINI_MODEL,
     systemInstruction: `${ANALYSIS_PERSONA}\n\nVrať POUZE platný JSON objekt bez dalšího textu.`,
@@ -148,7 +152,6 @@ export const getArtistAnalyses = async (ai: GoogleGenerativeAI, artistNames: str
 
     const prompt = `Stručně analyzuj styl psaní textů interpreta "${artistName}" v žánru "${genre}". Max 3 věty. Zaměř se na klíčové charakteristiky jeho textů.`;
     
-    // OPRAVA: Správný způsob volání API
     const model = ai.getGenerativeModel({
         model: GEMINI_MODEL,
         systemInstruction: COMPACT_PERSONA,
@@ -181,7 +184,6 @@ STYL: Inspiruj se styly: ${artistAnalyses.slice(0, 3).join('; ')}
 
 Vrať POUZE vylepšený text bez komentářů.`;
 
-  // OPRAVA: Správný způsob volání API
   const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: IMPROVEMENT_PERSONA });
   const result = await model.generateContent(prompt);
   
@@ -205,7 +207,6 @@ ${improvedLyrics}
 
 Vrať POUZE naformátovaný text s metatagy.`;
 
-  // OPRAVA: Správný způsob volání API
   const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: SUNO_PERSONA });
   const result = await model.generateContent(prompt);
   
@@ -224,7 +225,6 @@ Příklad: "Upbeat pop rock with energetic drums"
 
 Vrať POUZE popis stylu:`;
 
-  // OPRAVA: Správný způsob volání API
   const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: COMPACT_PERSONA });
   const result = await model.generateContent(prompt);
   
@@ -244,7 +244,6 @@ export const getSimilarArtistsForGenre = async (ai: GoogleGenerativeAI, lyrics: 
 
 Text: ${lyrics.substring(0, 500)}...`;
   
-  // OPRAVA: Správný způsob volání API
   const model = ai.getGenerativeModel({
     model: GEMINI_MODEL,
     systemInstruction: COMPACT_PERSONA,
@@ -283,7 +282,6 @@ ${originalLyrics}
 
 Vrať POUZE přepsaný text:`;
 
-  // OPRAVA: Správný způsob volání API
   const model = ai.getGenerativeModel({
     model: GEMINI_MODEL,
     systemInstruction: IMPROVEMENT_PERSONA,
@@ -305,7 +303,6 @@ export const analyzeArtistForStyleTransfer = async (ai: GoogleGenerativeAI, arti
 
   const prompt = `Analýza stylu interpreta "${artistName}". JSON: {"genre": "žánr", "analysis": "analýza stylu (5-7 vět)"}`;
 
-  // OPRAVA: Správný způsob volání API
   const model = ai.getGenerativeModel({
     model: GEMINI_MODEL,
     systemInstruction: ANALYSIS_PERSONA,
