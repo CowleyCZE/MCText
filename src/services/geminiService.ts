@@ -1,5 +1,5 @@
 // src/services/geminiService.ts
-import { GoogleGenAI, GenerateContentResponse, GroundingChunk } from "@google/genai";
+import { GoogleGenerativeAI, GenerateContentResult, GroundingChunk } from "@google/genai";
 import type { GroundingAttribution, ArtistStyleAnalysis } from '../types'; // Local GroundingAttribution type
 import { COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
 
@@ -39,10 +39,11 @@ class OptimizedCache {
 
 const cache = new OptimizedCache();
 
-// Helper to parse grounding attributions
-const parseGroundingAttributions = (genAIAttributions: GroundingChunk[] | undefined): GroundingAttribution[] => {
-  if (!genAIAttributions) return [];
-  return genAIAttributions.map(attr => ({
+// Helper to parse grounding attributions from the new response structure
+const parseGroundingAttributionsFromResult = (result: GenerateContentResult): GroundingAttribution[] => {
+  const chunks = result.response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+  if (!chunks) return [];
+  return chunks.map(attr => ({
     web: attr.web ? { uri: attr.web.uri || '', title: attr.web.title || '' } : undefined,
   })).filter(attr => attr.web && (attr.web.uri || attr.web.title)); 
 };
@@ -50,7 +51,6 @@ const parseGroundingAttributions = (genAIAttributions: GroundingChunk[] | undefi
 function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): T {
   let textToParse = jsonString.trim();
   
-  // Pokus o extrakci JSON z markdown bloků
   const fenceRegex = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/;
   const match = textToParse.match(fenceRegex);
 
@@ -62,7 +62,6 @@ function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): 
     const parsed = JSON.parse(textToParse);
     return parsed as T;
   } catch (error: any) {
-    // Pokus o extrakci prvního pole
     const arrayMatch = jsonString.match(/(\[[\s\S]*?\])/);
     if (arrayMatch && arrayMatch[1]) {
       try {
@@ -70,7 +69,6 @@ function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): 
       } catch (e2) {}
     }
 
-    // Pokus o extrakci prvního objektu
     const objectMatch = jsonString.match(/(\{[\s\S]*?\})/);
     if (objectMatch && objectMatch[1]) {
       try {
@@ -83,10 +81,11 @@ function parseJsonSafely<T>(jsonString: string, fallback: T, context?: string): 
   }
 }
 
-export const GEMINI_MODEL = "gemini-2.5-flash-preview-04-17"; // Export model name
+// OPRAVA: Aktualizovaný název modelu na stabilní verzi.
+export const GEMINI_MODEL = "gemini-1.5-flash-latest";
 
 // Optimalizovaná verze - kombinuje více analýz do jednoho volání
-export const getComprehensiveAnalysis = async (ai: GoogleGenAI, lyrics: string): Promise<{
+export const getComprehensiveAnalysis = async (ai: GoogleGenerativeAI, lyrics: string): Promise<{
   genre: string;
   weakSpots: string[];
   topArtists: { artists: string[], attributions?: GroundingAttribution[] };
@@ -107,30 +106,33 @@ export const getComprehensiveAnalysis = async (ai: GoogleGenAI, lyrics: string):
 Text písně:
 ${lyrics}`;
 
-  const response: GenerateContentResponse = await ai.models.generateContent({
+  // OPRAVA: Správný způsob volání API podle aktuální verze @google/genai
+  const model = ai.getGenerativeModel({
     model: GEMINI_MODEL,
-    contents: prompt,
-    config: { 
-      systemInstruction: `${ANALYSIS_PERSONA}\n\nVrať POUZE platný JSON objekt bez dalšího textu.`,
+    systemInstruction: `${ANALYSIS_PERSONA}\n\nVrať POUZE platný JSON objekt bez dalšího textu.`,
+    tools: [{googleSearch: {}}],
+    generationConfig: { 
       responseMimeType: "application/json",
-      tools: [{googleSearch: {}}]
     }
   });
 
-  const result = parseJsonSafely(typeof response.text === 'string' ? response.text : '', {
+  const result = await model.generateContent(prompt);
+  const responseText = result.response.text();
+
+  const parsedResult = parseJsonSafely(responseText, {
     genre: "Neznámý žánr",
     weakSpots: [],
     topArtists: [],
     rankedGenres: []
   }, "getComprehensiveAnalysis");
 
-  const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
+  const attributions = parseGroundingAttributionsFromResult(result);
   
   const finalResult = {
-    genre: result.genre,
-    weakSpots: result.weakSpots,
-    topArtists: { artists: result.topArtists, attributions },
-    rankedGenres: result.rankedGenres
+    genre: parsedResult.genre,
+    weakSpots: parsedResult.weakSpots,
+    topArtists: { artists: parsedResult.topArtists, attributions },
+    rankedGenres: parsedResult.rankedGenres
   };
 
   cache.set(cacheKey, finalResult);
@@ -138,7 +140,7 @@ ${lyrics}`;
 };
 
 // Optimalizovaná verze analýzy interpretů - paralelní zpracování
-export const getArtistAnalyses = async (ai: GoogleGenAI, artistNames: string[], genre: string): Promise<Array<{ analysis: string, attributions?: GroundingAttribution[] }>> => {
+export const getArtistAnalyses = async (ai: GoogleGenerativeAI, artistNames: string[], genre: string): Promise<Array<{ analysis: string, attributions?: GroundingAttribution[] }>> => {
   const promises = artistNames.map(async (artistName) => {
     const cacheKey = `artist-analysis-${artistName.toLowerCase().trim()}-${genre.toLowerCase()}`;
     const cached = cache.get(cacheKey);
@@ -146,29 +148,29 @@ export const getArtistAnalyses = async (ai: GoogleGenAI, artistNames: string[], 
 
     const prompt = `Stručně analyzuj styl psaní textů interpreta "${artistName}" v žánru "${genre}". Max 3 věty. Zaměř se na klíčové charakteristiky jeho textů.`;
     
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: { 
+    // OPRAVA: Správný způsob volání API
+    const model = ai.getGenerativeModel({
+        model: GEMINI_MODEL,
         systemInstruction: COMPACT_PERSONA,
-        tools: [{googleSearch: {}}] 
-      }
+        tools: [{googleSearch: {}}]
     });
+
+    const result = await model.generateContent(prompt);
     
-    const result = {
-      analysis: typeof response.text === 'string' ? response.text.trim() : '',
-      attributions: parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks)
+    const finalResult = {
+      analysis: result.response.text(),
+      attributions: parseGroundingAttributionsFromResult(result)
     };
 
-    cache.set(cacheKey, result);
-    return result;
+    cache.set(cacheKey, finalResult);
+    return finalResult;
   });
 
   return Promise.all(promises);
 };
 
 // Optimalizovaná verze vylepšení textů - kratší prompt
-export const getImprovedLyrics = async (ai: GoogleGenAI, originalLyrics: string, weakSpots: string[], genre: string, artistAnalyses: string[]): Promise<string> => {
+export const getImprovedLyrics = async (ai: GoogleGenerativeAI, originalLyrics: string, weakSpots: string[], genre: string, artistAnalyses: string[]): Promise<string> => {
   const prompt = `Vylepši tento text pro žánr ${genre}:
 
 PŮVODNÍ TEXT:
@@ -179,17 +181,15 @@ STYL: Inspiruj se styly: ${artistAnalyses.slice(0, 3).join('; ')}
 
 Vrať POUZE vylepšený text bez komentářů.`;
 
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { systemInstruction: IMPROVEMENT_PERSONA }
-  });
+  // OPRAVA: Správný způsob volání API
+  const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: IMPROVEMENT_PERSONA });
+  const result = await model.generateContent(prompt);
   
-  return typeof response.text === 'string' ? response.text.trim() : '';
+  return result.response.text();
 };
 
 // Optimalizovaná verze Suno formátování - kratší prompt s příklady
-export const getSunoFormattedLyrics = async (ai: GoogleGenAI, improvedLyrics: string, genre: string): Promise<string> => {
+export const getSunoFormattedLyrics = async (ai: GoogleGenerativeAI, improvedLyrics: string, genre: string): Promise<string> => {
   const prompt = `Naformátuj pro Suno.ai (žánr: ${genre}). Max 3000 znaků.
 
 VZOR:
@@ -205,13 +205,11 @@ ${improvedLyrics}
 
 Vrať POUZE naformátovaný text s metatagy.`;
 
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { systemInstruction: SUNO_PERSONA }
-  });
+  // OPRAVA: Správný způsob volání API
+  const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: SUNO_PERSONA });
+  const result = await model.generateContent(prompt);
   
-  let formatted = typeof response.text === 'string' ? response.text.trim() : '';
+  let formatted = result.response.text();
   if (formatted.length > 3000) {
     formatted = formatted.substring(0, 2990) + "\n[ZKRÁCENO]"; 
   }
@@ -219,66 +217,25 @@ Vrať POUZE naformátovaný text s metatagy.`;
 };
 
 // Optimalizovaná verze Style of Music - velmi kratký prompt
-// FIX: The prompt for getStyleOfMusic does not need sunoFormattedLyrics, only genre.
-// Removed sunoFormattedLyrics from parameters.
-export const getStyleOfMusic = async (ai: GoogleGenAI, genre: string): Promise<string> => {
+export const getStyleOfMusic = async (ai: GoogleGenerativeAI, genre: string): Promise<string> => {
   const prompt = `"Style of Music" pro Suno.ai (max 200 znaků, anglicky):
 Žánr: ${genre}
 Příklad: "Upbeat pop rock with energetic drums"
 
 Vrať POUZE popis stylu:`;
 
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { systemInstruction: COMPACT_PERSONA }
-  });
+  // OPRAVA: Správný způsob volání API
+  const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: COMPACT_PERSONA });
+  const result = await model.generateContent(prompt);
   
-  let style = typeof response.text === 'string' ? response.text.trim() : '';
+  let style = result.response.text();
   if (style.length > 200) {
     style = style.substring(0, 197) + "...";
   }
   return style;
 };
 
-// Zachovávám původní funkce pro kompatibilitu
-export const getGenre = async (ai: GoogleGenAI, lyrics: string): Promise<string> => {
-  const analysis = await getComprehensiveAnalysis(ai, lyrics);
-  return analysis.genre;
-};
-
-export const getWeakSpots = async (ai: GoogleGenAI, lyrics: string): Promise<string[]> => {
-  const analysis = await getComprehensiveAnalysis(ai, lyrics);
-  return analysis.weakSpots;
-};
-
-export const getTopArtists = async (ai: GoogleGenAI, genre: string): Promise<{ artists: string[], attributions?: GroundingAttribution[] }> => {
-  // Pro kompatibilitu - v praxi použije výsledek z comprehensive analysis
-  const prompt = `Top 5 interpretů žánru "${genre}". JSON pole jmen: ["Artist1", "Artist2", ...]`;
-  const response: GenerateContentResponse = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: prompt,
-    config: { 
-      systemInstruction: COMPACT_PERSONA,
-      tools: [{googleSearch: {}}]
-    }
-  });
-  const artists = parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getTopArtists");
-  const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
-  return { artists, attributions };
-};
-
-export const getArtistAnalysis = async (ai: GoogleGenAI, artistName: string, genre: string): Promise<{ analysis: string, attributions?: GroundingAttribution[] }> => {
-  const analyses = await getArtistAnalyses(ai, [artistName], genre);
-  return analyses[0] || { analysis: '', attributions: [] };
-};
-
-export const getRankedGenres = async (ai: GoogleGenAI, lyrics: string): Promise<string[]> => {
-  const analysis = await getComprehensiveAnalysis(ai, lyrics);
-  return analysis.rankedGenres;
-};
-
-export const getSimilarArtistsForGenre = async (ai: GoogleGenAI, lyrics: string, genre: string): Promise<string[]> => {
+export const getSimilarArtistsForGenre = async (ai: GoogleGenerativeAI, lyrics: string, genre: string): Promise<string[]> => {
   const cacheKey = `similar-artists-${genre.toLowerCase()}-${Buffer.from(lyrics).toString('base64').slice(0, 30)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
@@ -287,22 +244,23 @@ export const getSimilarArtistsForGenre = async (ai: GoogleGenAI, lyrics: string,
 
 Text: ${lyrics.substring(0, 500)}...`;
   
-  const response: GenerateContentResponse = await ai.models.generateContent({
+  // OPRAVA: Správný způsob volání API
+  const model = ai.getGenerativeModel({
     model: GEMINI_MODEL,
-    contents: prompt,
-    config: { 
-      systemInstruction: COMPACT_PERSONA,
-      responseMimeType: "application/json" 
+    systemInstruction: COMPACT_PERSONA,
+    generationConfig: {
+        responseMimeType: "application/json" 
     }
   });
+  const result = await model.generateContent(prompt);
   
-  const result = parseJsonSafely<string[]>(typeof response.text === 'string' ? response.text : '', [], "getSimilarArtistsForGenre");
-  cache.set(cacheKey, result);
-  return result;
+  const parsedResult = parseJsonSafely<string[]>(result.response.text(), [], "getSimilarArtistsForGenre");
+  cache.set(cacheKey, parsedResult);
+  return parsedResult;
 };
 
 export const adjustLyricsToGenreAndArtist = async (
-  ai: GoogleGenAI,
+  ai: GoogleGenerativeAI,
   originalLyrics: string,
   targetGenre: string,
   artistName?: string | null,
@@ -325,77 +283,50 @@ ${originalLyrics}
 
 Vrať POUZE přepsaný text:`;
 
-  const response: GenerateContentResponse = await ai.models.generateContent({
+  // OPRAVA: Správný způsob volání API
+  const model = ai.getGenerativeModel({
     model: GEMINI_MODEL,
-    contents: prompt,
-    config: {
-      systemInstruction: IMPROVEMENT_PERSONA,
-      temperature: 0.7
+    systemInstruction: IMPROVEMENT_PERSONA,
+    generationConfig: {
+        temperature: 0.7
     }
   });
+  const result = await model.generateContent(prompt);
   
-  const result = typeof response.text === 'string' ? response.text.trim() : '';
-  cache.set(cacheKey, result);
-  return result;
+  const adjustedText = result.response.text();
+  cache.set(cacheKey, adjustedText);
+  return adjustedText;
 };
 
-export const analyzeArtistForStyleTransfer = async (ai: GoogleGenAI, artistName: string): Promise<ArtistStyleAnalysis> => {
+export const analyzeArtistForStyleTransfer = async (ai: GoogleGenerativeAI, artistName: string): Promise<ArtistStyleAnalysis> => {
   const cacheKey = `artist-style-${artistName.toLowerCase().trim()}`;
-  let cached = null;
-  
-  // Zkusím cache i localStorage pro zachování kompatibility
-  try {
-    const localStorageData = localStorage.getItem(`artist-analysis:${artistName.toLowerCase().trim()}`);
-    if (localStorageData) {
-      cached = JSON.parse(localStorageData);
-    }
-  } catch (e) {}
-  
-  if (!cached) {
-    cached = cache.get(cacheKey);
-  }
-  
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
 
   const prompt = `Analýza stylu interpreta "${artistName}". JSON: {"genre": "žánr", "analysis": "analýza stylu (5-7 vět)"}`;
 
-  const response: GenerateContentResponse = await ai.models.generateContent({
+  // OPRAVA: Správný způsob volání API
+  const model = ai.getGenerativeModel({
     model: GEMINI_MODEL,
-    contents: prompt,
-    config: { 
-      systemInstruction: ANALYSIS_PERSONA,
-      tools: [{googleSearch: {}}]
-    }
+    systemInstruction: ANALYSIS_PERSONA,
+    tools: [{googleSearch: {}}]
   });
 
+  const result = await model.generateContent(prompt);
+  const responseText = result.response.text();
+
   const analysisData = parseJsonSafely<{ genre: string; analysis: string; }>(
-    typeof response.text === 'string' ? response.text : '', 
+    responseText, 
     { genre: 'Neznámý', analysis: 'Analýza se nezdařila.' }, 
     "analyzeArtistForStyleTransfer"
   );
   
-  const attributions = parseGroundingAttributions(response.candidates?.[0]?.groundingMetadata?.groundingChunks);
+  const attributions = parseGroundingAttributionsFromResult(result);
   
-  const result = { ...analysisData, attributions };
+  const finalResult = { ...analysisData, attributions };
   
-  // Uložím do obou cachí
-  cache.set(cacheKey, result);
-  try {
-    localStorage.setItem(`artist-analysis:${artistName.toLowerCase().trim()}`, JSON.stringify(result));
-  } catch (e) {}
-  
-  return result;
-};
-
-// Nová optimalizovaná funkce pro kompletní analýzu v jednom volání
-export const getCompleteAnalysis = async (ai: GoogleGenAI, lyrics: string) => {
-  const comprehensive = await getComprehensiveAnalysis(ai, lyrics);
-  const artistAnalyses = await getArtistAnalyses(ai, comprehensive.topArtists.artists, comprehensive.genre);
-  
-  return {
-    ...comprehensive,
-    artistAnalyses
-  };
+  cache.set(cacheKey, finalResult);
+  return finalResult;
 };
 
 // Utility pro vyčištění cache
