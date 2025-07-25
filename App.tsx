@@ -1,13 +1,14 @@
-
+// src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
+// OPRAVA: Přímý import konstruktoru pro stabilitu
+import { GoogleGenerativeAI } from "@google/genai";
+import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
-import { AnalysisDisplay, GroundingAttributionsList, CopyButton, CharacterCount } from './components/AnalysisDisplay';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { KNOWLEDGE_BASE_SECTIONS, SUNO_AI_LYRICS_MAX_CHARS } from './constants';
-import type { AnalysisResults, ArtistInfo, ArtistStyleAnalysis } from './types';
+import type { AnalysisResults, ArtistInfo, ArtistStyleAnalysis, GroundingAttribution } from './types';
 import { 
   getComprehensiveAnalysis,
   getArtistAnalyses,
@@ -19,6 +20,13 @@ import {
   analyzeArtistForStyleTransfer,
   clearCache
 } from './services/geminiService';
+import { CharacterCount, CopyButton, GroundingAttributionsList } from './components/AnalysisDisplay';
+import { SavedLyricsManager } from './components/SavedLyricsManager'; // Předpokládám existenci této komponenty
+
+// Nastavení globálního Bufferu pro polyfill v prohlížeči
+if (typeof window !== 'undefined') {
+  (window as any).Buffer = Buffer;
+}
 
 const App: React.FC = () => {
   const [lyrics, setLyrics] = useState<string>('');
@@ -50,18 +58,29 @@ const App: React.FC = () => {
   // Progress tracking pro lepší UX
   const [analysisProgress, setAnalysisProgress] = useState<string>('');
 
-  const [aiInstance, setAiInstance] = useState<GoogleGenAI | null>(null);
+  const [aiInstance, setAiInstance] = useState<GoogleGenerativeAI | null>(null);
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   useEffect(() => {
     const initializeApp = () => {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
-      if (apiKey) {
-        const ai = new GoogleGenAI(apiKey);
-        setAiInstance(ai);
-        setIsAppReady(true);
-      } else {
-        setIsApiKeyMissing(true);
+      try {
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (apiKey) {
+          // OPRAVA: Použití přímého importu, který je spolehlivější
+          if (!GoogleGenerativeAI || typeof GoogleGenerativeAI !== 'function') {
+            console.error("Konstruktor GoogleGenerativeAI nebyl v modulu @google/genai nalezen.");
+            throw new Error("Could not find GoogleGenerativeAI constructor in the module.");
+          }
+          const ai = new GoogleGenerativeAI(apiKey);
+          setAiInstance(ai);
+          setIsAppReady(true);
+        } else {
+          setIsApiKeyMissing(true);
+          setIsAppReady(false);
+        }
+      } catch (e) {
+        console.error("Chyba při inicializaci Gemini API:", e);
+        setError(`Chyba při inicializaci AI: ${e instanceof Error ? e.message : String(e)}`);
         setIsAppReady(false);
       }
     };
@@ -96,15 +115,12 @@ const App: React.FC = () => {
     clearAllResults();
 
     try {
-      // Krok 1: Získání komprehensivní analýzy (1 API volání místo 4)
       setAnalysisProgress('Analyzuji text písně...');
       const comprehensive = await getComprehensiveAnalysis(aiInstance, lyrics);
       
-      // Krok 2: Paralelní získání analýz interpretů
       setAnalysisProgress('Analyzuji styly interpretů...');
       const artistAnalyses = await getArtistAnalyses(aiInstance, comprehensive.topArtists.artists, comprehensive.genre);
       
-      // Krok 3: Paralelní zpracování vylepšení a formátování
       setAnalysisProgress('Vylepšuji text a připravuji formáty...');
       const topArtists: ArtistInfo[] = comprehensive.topArtists.artists.map((name, index) => ({
         name,
@@ -114,16 +130,11 @@ const App: React.FC = () => {
 
       const artistAnalysesTexts = topArtists.map(a => `${a.name}: ${a.analysis || 'N/A'}`);
       
-      // Paralelní zpracování posledních kroků
-      const [improvedLyrics, sunoFormattedLyrics] = await Promise.all([
-        getImprovedLyrics(aiInstance, lyrics, comprehensive.weakSpots, comprehensive.genre, artistAnalysesTexts),
-        // Poznámka: getSunoFormattedLyrics bude volána až po dokončení improvedLyrics pro lepší výsledek
-      ]);
+      const improvedLyrics = await getImprovedLyrics(aiInstance, lyrics, comprehensive.weakSpots, comprehensive.genre, artistAnalysesTexts);
 
-      // Formátování pro Suno a Style of Music
       const [sunoFormatted, styleOfMusic] = await Promise.all([
         getSunoFormattedLyrics(aiInstance, improvedLyrics, comprehensive.genre),
-        getStyleOfMusic(aiInstance, improvedLyrics, comprehensive.genre)
+        getStyleOfMusic(aiInstance, comprehensive.genre)
       ]);
 
       const finalResults: AnalysisResults = {
@@ -153,18 +164,21 @@ const App: React.FC = () => {
       setIsLoading(false);
       setAnalysisProgress('');
     }
-  }, [lyrics, aiInstance, isAppReady]);
+  }, [lyrics, aiInstance, isAppReady, clearAllResults]);
 
   const handleToggleGenreAdjustmentTool = () => {
     if (!isAppReady) return;
     if (showGenreAdjustmentTool) {
-      clearAllResults();
+      setShowGenreAdjustmentTool(false);
+      setGenreAdjustmentStep(0);
+      setAdjustedLyricsByGenre(null);
+      setGenreAdjustmentError(null);
     } else {
       if (!lyrics.trim()) {
         setGenreAdjustmentError("Nejprve prosím vložte text písně do horního pole.");
         return;
       }
-      clearAllResults();
+      setAnalysisResults(null); 
       setShowGenreAdjustmentTool(true);
       setGenreAdjustmentError(null);
       handleFetchRankedGenres();
@@ -180,7 +194,6 @@ const App: React.FC = () => {
     setGenreAdjustmentError(null);
     setRankedGenres([]);
     try {
-      // Využívám optimalizovanou funkci, která už má žánry v cache
       const comprehensive = await getComprehensiveAnalysis(aiInstance, lyrics);
       setRankedGenres(comprehensive.rankedGenres);
       setGenreAdjustmentStep(1); 
@@ -214,7 +227,11 @@ const App: React.FC = () => {
   const handleArtistSelectedForAdjustment = (artistName: string | null) => {
     if (!isAppReady) return;
     setSelectedArtistForAdjustment(artistName);
-    handleAdjustLyricsSubmit(selectedGenreForAdjustment, artistName);
+    if (selectedGenreForAdjustment) {
+      handleAdjustLyricsSubmit(selectedGenreForAdjustment, artistName);
+    } else {
+      setGenreAdjustmentError("Žánr pro úpravu není vybrán.");
+    }
   };
   
   const handleAdjustLyricsSubmit = async (genre: string | null, artist: string | null) => {
@@ -253,10 +270,12 @@ const App: React.FC = () => {
     }
     setIsArtistAnalysisLoading(true);
     setArtistAnalysisError(null);
-    clearAllResults();
+    setAnalysisResults(null);
+    setArtistAnalysisResult(null);
+    setAdjustedLyricsByArtist(null);
+    setSunoFormattedArtistLyrics(null);
 
     try {
-      // Využívám optimalizované cachování
       const analysis = await analyzeArtistForStyleTransfer(aiInstance, artistNameForAnalysis);
       setArtistAnalysisResult(analysis);
       
@@ -289,13 +308,12 @@ const App: React.FC = () => {
     }
   };
 
-  // Funkce pro vyčištění cache
   const handleClearCache = () => {
     clearCache();
     alert('Cache byla vyčištěna!');
   };
 
-  if (isApiKeyMissing && !import.meta.env.VITE_GEMINI_API_KEY) { 
+  if (isApiKeyMissing) { 
     return (
       <div className="min-h-screen bg-slate-900 container mx-auto p-4 md:p-8 flex flex-col items-center justify-center text-center">
         <div className="bg-slate-800 p-8 rounded-lg shadow-2xl max-w-md w-full">
@@ -323,7 +341,7 @@ const App: React.FC = () => {
         <p className="text-slate-400 text-lg">
           Analyzujte, vylepšete a připravte své texty pro Suno.ai! (Optimalizovaná verze)
         </p>
-        {process.env.NODE_ENV === 'development' && (
+        {import.meta.env.DEV && (
           <button
             onClick={handleClearCache}
             className="mt-2 px-3 py-1 text-xs bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
@@ -339,7 +357,7 @@ const App: React.FC = () => {
             lyrics={lyrics}
             onLyricsChange={(newLyrics) => {
               setLyrics(newLyrics);
-              clearAllResults();
+              if (analysisResults) setAnalysisResults(null);
             }}
             onProcess={handleProcessLyrics}
             isLoading={isLoading || !isAppReady || isGenreAdjustmentLoading || isArtistAnalysisLoading}
