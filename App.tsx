@@ -18,7 +18,8 @@ import {
   getSimilarArtistsForGenre,
   adjustLyricsToGenreAndArtist,
   analyzeArtistForStyleTransfer,
-  clearCache
+  clearCache,
+  resetRateLimit
 } from './services/geminiService';
 import { CharacterCount, CopyButton, GroundingAttributionsList } from './components/AnalysisDisplay';
 
@@ -57,7 +58,7 @@ const App: React.FC = () => {
   // Progress tracking pro lepší UX
   const [analysisProgress, setAnalysisProgress] = useState<string>('');
 
-  const [aiInstance, setAiInstance] = useState<genAI.GoogleGenerativeAI | null>(null);
+  const [aiInstance, setAiInstance] = useState<any>(null);
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   useEffect(() => {
@@ -122,7 +123,7 @@ const App: React.FC = () => {
       setAnalysisProgress('Analyzuji styly interpretů...');
       const artistAnalyses = await getArtistAnalyses(aiInstance, comprehensive.topArtists.artists, comprehensive.genre);
       
-      setAnalysisProgress('Vylepšuji text a připravuji formáty...');
+      setAnalysisProgress('Vylepšuji text...');
       const topArtists: ArtistInfo[] = comprehensive.topArtists.artists.map((name, index) => ({
         name,
         analysis: artistAnalyses[index]?.analysis || '',
@@ -133,10 +134,11 @@ const App: React.FC = () => {
       
       const improvedLyrics = await getImprovedLyrics(aiInstance, lyrics, comprehensive.weakSpots, comprehensive.genre, artistAnalysesTexts);
 
-      const [sunoFormatted, styleOfMusic] = await Promise.all([
-        getSunoFormattedLyrics(aiInstance, improvedLyrics, comprehensive.genre),
-        getStyleOfMusic(aiInstance, comprehensive.genre)
-      ]);
+      setAnalysisProgress('Formátuji pro Suno.ai...');
+      const sunoFormatted = await getSunoFormattedLyrics(aiInstance, improvedLyrics, comprehensive.genre);
+      
+      setAnalysisProgress('Generuji popis stylu...');
+      const styleOfMusic = await getStyleOfMusic(aiInstance, comprehensive.genre);
 
       const finalResults: AnalysisResults = {
         genre: comprehensive.genre,

@@ -4,6 +4,53 @@ import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai
 import type { GroundingAttribution, ArtistStyleAnalysis } from '../types';
 import { COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
 
+// Rate limiting pro Gemini API
+class RateLimiter {
+  private requestTimes: number[] = [];
+  private readonly MAX_REQUESTS = 2; // Gemini free tier limit
+  private readonly TIME_WINDOW = 60 * 1000; // 1 minuta
+  private readonly MIN_DELAY = 30 * 1000; // Minimální pauza mezi požadavky (30 sekund)
+
+  async waitForAvailability(): Promise<void> {
+    const now = Date.now();
+    
+    // Odstraň staré požadavky mimo časové okno
+    this.requestTimes = this.requestTimes.filter(time => now - time < this.TIME_WINDOW);
+    
+    // Pokud jsme dosáhli limitu, počkej
+    if (this.requestTimes.length >= this.MAX_REQUESTS) {
+      const oldestRequest = Math.min(...this.requestTimes);
+      const waitTime = this.TIME_WINDOW - (now - oldestRequest);
+      
+      if (waitTime > 0) {
+        console.log(`Rate limit dosažen. Čekám ${Math.ceil(waitTime / 1000)} sekund...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+    
+    // Zajisti minimální pauzu mezi požadavky
+    if (this.requestTimes.length > 0) {
+      const lastRequest = Math.max(...this.requestTimes);
+      const timeSinceLastRequest = now - lastRequest;
+      
+      if (timeSinceLastRequest < this.MIN_DELAY) {
+        const delayNeeded = this.MIN_DELAY - timeSinceLastRequest;
+        console.log(`Čekám ${Math.ceil(delayNeeded / 1000)} sekund mezi požadavky...`);
+        await new Promise(resolve => setTimeout(resolve, delayNeeded));
+      }
+    }
+    
+    // Zaregistruj nový požadavek
+    this.requestTimes.push(Date.now());
+  }
+
+  reset(): void {
+    this.requestTimes = [];
+  }
+}
+
+const rateLimiter = new RateLimiter();
+
 // Cache pro optimalizaci API volání
 interface CacheEntry {
   data: any;
@@ -100,6 +147,9 @@ export const getComprehensiveAnalysis = async (ai: GoogleGenerativeAI, lyrics: s
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
+  // Počkej na dostupnost API (rate limiting)
+  await rateLimiter.waitForAvailability();
+
   const prompt = `Analyzuj následující text písně komplexně. Vrať odpověď POUZE jako JSON objekt s těmito klíči:
 {
   "genre": "hlavní doporučený žánr (string)",
@@ -142,12 +192,21 @@ ${lyrics}`;
   return finalResult;
 };
 
-// Optimalizovaná verze analýzy interpretů - paralelní zpracování
+// Sekvenční analýza interpretů s rate limitingem (místo paralelní)
 export const getArtistAnalyses = async (ai: GoogleGenerativeAI, artistNames: string[], genre: string): Promise<Array<{ analysis: string, attributions?: GroundingAttribution[] }>> => {
-  const promises = artistNames.map(async (artistName) => {
+  const results: Array<{ analysis: string, attributions?: GroundingAttribution[] }> = [];
+  
+  for (const artistName of artistNames) {
     const cacheKey = `artist-analysis-${artistName.toLowerCase().trim()}-${genre.toLowerCase()}`;
     const cached = cache.get(cacheKey);
-    if (cached) return cached;
+    
+    if (cached) {
+      results.push(cached);
+      continue;
+    }
+
+    // Počkej na dostupnost API (rate limiting)
+    await rateLimiter.waitForAvailability();
 
     const prompt = `Stručně analyzuj styl psaní textů interpreta "${artistName}" v žánru "${genre}". Max 3 věty. Zaměř se na klíčové charakteristiky jeho textů.`;
 
@@ -164,14 +223,17 @@ export const getArtistAnalyses = async (ai: GoogleGenerativeAI, artistNames: str
     };
 
     cache.set(cacheKey, finalResult);
-    return finalResult;
-  });
+    results.push(finalResult);
+  }
 
-  return Promise.all(promises);
+  return results;
 };
 
 // Optimalizovaná verze vylepšení textů - kratší prompt
 export const getImprovedLyrics = async (ai: GoogleGenerativeAI, originalLyrics: string, weakSpots: string[], genre: string, artistAnalyses: string[]): Promise<string> => {
+  // Počkej na dostupnost API (rate limiting)
+  await rateLimiter.waitForAvailability();
+
   const prompt = `Vylepši tento text pro žánr ${genre}:
 
 PŮVODNÍ TEXT:
@@ -190,6 +252,9 @@ Vrať POUZE vylepšený text bez komentářů.`;
 
 // Optimalizovaná verze Suno formátování - kratší prompt s příklady
 export const getSunoFormattedLyrics = async (ai: GoogleGenerativeAI, improvedLyrics: string, genre: string): Promise<string> => {
+  // Počkej na dostupnost API (rate limiting)
+  await rateLimiter.waitForAvailability();
+
   const prompt = `Naformátuj pro Suno.ai (žánr: ${genre}). Max 3000 znaků.
 
 VZOR:
@@ -217,6 +282,9 @@ Vrať POUZE naformátovaný text s metatagy.`;
 
 // Optimalizovaná verze Style of Music - velmi kratký prompt
 export const getStyleOfMusic = async (ai: GoogleGenerativeAI, genre: string): Promise<string> => {
+  // Počkej na dostupnost API (rate limiting)
+  await rateLimiter.waitForAvailability();
+
   const prompt = `"Style of Music" pro Suno.ai (max 200 znaků, anglicky):
 Žánr: ${genre}
 Příklad: "Upbeat pop rock with energetic drums"
@@ -237,6 +305,9 @@ export const getSimilarArtistsForGenre = async (ai: GoogleGenerativeAI, lyrics: 
   const cacheKey = `similar-artists-${genre.toLowerCase()}-${Buffer.from(lyrics).toString('base64').slice(0, 30)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
+
+  // Počkej na dostupnost API (rate limiting)
+  await rateLimiter.waitForAvailability();
 
   const prompt = `5 interpretů podobných stylu tohoto textu v žánru '${genre}'. JSON pole: ["Artist1", "Artist2", ...]
 
@@ -266,6 +337,9 @@ export const adjustLyricsToGenreAndArtist = async (
   const cacheKey = `adjust-${targetGenre}-${artistName || 'none'}-${Buffer.from(originalLyrics).toString('base64').slice(0, 30)}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
+
+  // Počkej na dostupnost API (rate limiting)
+  await rateLimiter.waitForAvailability();
 
   const artistPrompt = artistName && artistAnalysis
     ? `Styl: ${artistName} (${artistAnalysis})`
@@ -299,6 +373,9 @@ export const analyzeArtistForStyleTransfer = async (ai: GoogleGenerativeAI, arti
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
+  // Počkej na dostupnost API (rate limiting)
+  await rateLimiter.waitForAvailability();
+
   const prompt = `Analýza stylu interpreta "${artistName}". JSON: {"genre": "žánr", "analysis": "analýza stylu (5-7 vět)"}`;
 
   const model = ai.getGenerativeModel({
@@ -323,7 +400,12 @@ export const analyzeArtistForStyleTransfer = async (ai: GoogleGenerativeAI, arti
   return finalResult;
 };
 
-// Utility pro vyčištění cache
+// Utility pro vyčištění cache a resetování rate limiteru
 export const clearCache = () => {
   cache.clear();
+};
+
+// Resetování rate limiteru (užitečné pro testování nebo manuální reset)
+export const resetRateLimit = () => {
+  rateLimiter.reset();
 };
