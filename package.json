@@ -10,10 +10,10 @@
     "test": "jest"
   },
   "dependencies": {
-    "@google/genai": "^1.8.0",
+    "@google/genai": "^1.11.0",
     "buffer": "^6.0.3",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
@@ -23,8 +23,11 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.21",
     "jest": "^30.0.5",
     "jest-environment-jsdom": "^30.0.5",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.11",
     "ts-jest": "^29.4.0",
     "typescript": "~5.7.2",
     "vite": "^6.2.0"
