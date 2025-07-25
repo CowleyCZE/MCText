@@ -1,10 +1,8 @@
-// src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
-// OPRAVA: Použití destrukturalizovaného importu pro GoogleGenerativeAI
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
-import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
+import InteractiveAnalysisDisplay from './components/InteractiveAnalysisDisplay'; // Import the new component
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { KNOWLEDGE_BASE_SECTIONS, SUNO_AI_LYRICS_MAX_CHARS } from './constants';
@@ -65,7 +63,6 @@ const App: React.FC = () => {
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (apiKey) {
-          // OPRAVA: Přímé volání konstruktoru
           const ai = new GoogleGenerativeAI(apiKey);
           setAiInstance(ai);
           setIsAppReady(true);
@@ -101,7 +98,6 @@ const App: React.FC = () => {
     setAnalysisProgress('');
   }, []);
 
-  // Optimalizovaná verze zpracování textů
   const handleProcessLyrics = useCallback(async () => {
     if (!lyrics.trim() || !aiInstance || !isAppReady) return;
 
@@ -430,7 +426,16 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {isAppReady && analysisResults && !isLoading && <OptimizedAnalysisDisplay results={analysisResults} />}
+          {isAppReady && analysisResults && !isLoading && 
+            <InteractiveAnalysisDisplay 
+              lyrics={analysisResults.improvedLyrics}
+              weakSpots={analysisResults.weakSpots}
+              onLyricsChange={(newLyrics) => {
+                setAnalysisResults(prev => (prev ? { ...prev, improvedLyrics: newLyrics } : null));
+              }}
+              ai={aiInstance}
+            />
+          }
 
           {isAppReady && showGenreAdjustmentTool && (
             <div className="bg-slate-800 p-5 rounded-xl shadow-xl space-y-4">

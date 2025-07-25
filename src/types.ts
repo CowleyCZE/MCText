@@ -5,6 +5,13 @@ export interface GroundingAttribution {
   };
 }
 
+export interface WeakSpot {
+  text: string;
+  description: string;
+  startIndex: number;
+  endIndex: number;
+}
+
 export interface ArtistInfo {
   name: string;
   analysis?: string;
@@ -13,7 +20,7 @@ export interface ArtistInfo {
 
 export interface AnalysisResults {
   genre: string;
-  weakSpots: string[];
+  weakSpots: WeakSpot[];
   topArtists: ArtistInfo[];
   improvedLyrics: string;
   sunoFormattedLyrics: string;
