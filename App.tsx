@@ -1,14 +1,14 @@
 // src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
-// OPRAVA: Přímý import konstruktoru pro stabilitu
-import { GoogleGenerativeAI } from "@google/genai";
+// OPRAVA: Použití namespace importu, který je nejrobustnější
+import * as genAI from "@google/genai";
 import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
 import { OptimizedAnalysisDisplay } from './components/OptimizedAnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { KNOWLEDGE_BASE_SECTIONS, SUNO_AI_LYRICS_MAX_CHARS } from './constants';
-import type { AnalysisResults, ArtistInfo, ArtistStyleAnalysis, GroundingAttribution } from './types';
+import type { AnalysisResults, ArtistInfo, ArtistStyleAnalysis } from './types';
 import { 
   getComprehensiveAnalysis,
   getArtistAnalyses,
@@ -21,7 +21,6 @@ import {
   clearCache
 } from './services/geminiService';
 import { CharacterCount, CopyButton, GroundingAttributionsList } from './components/AnalysisDisplay';
-import { SavedLyricsManager } from './components/SavedLyricsManager'; // Předpokládám existenci této komponenty
 
 // Nastavení globálního Bufferu pro polyfill v prohlížeči
 if (typeof window !== 'undefined') {
@@ -58,7 +57,7 @@ const App: React.FC = () => {
   // Progress tracking pro lepší UX
   const [analysisProgress, setAnalysisProgress] = useState<string>('');
 
-  const [aiInstance, setAiInstance] = useState<GoogleGenerativeAI | null>(null);
+  const [aiInstance, setAiInstance] = useState<genAI.GoogleGenerativeAI | null>(null);
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   useEffect(() => {
@@ -66,9 +65,11 @@ const App: React.FC = () => {
       try {
         const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
         if (apiKey) {
-          // OPRAVA: Použití přímého importu, který je spolehlivější
+          // OPRAVA: Robustní způsob, jak získat konstruktor z namespace
+          const GoogleGenerativeAI = (genAI as any).GoogleGenerativeAI || (genAI as any).default?.GoogleGenerativeAI;
+          
           if (!GoogleGenerativeAI || typeof GoogleGenerativeAI !== 'function') {
-            console.error("Konstruktor GoogleGenerativeAI nebyl v modulu @google/genai nalezen.");
+            console.error("Konstruktor GoogleGenerativeAI nebyl v modulu @google/genai nalezen.", genAI);
             throw new Error("Could not find GoogleGenerativeAI constructor in the module.");
           }
           const ai = new GoogleGenerativeAI(apiKey);
