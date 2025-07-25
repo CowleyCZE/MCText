@@ -1,4 +1,5 @@
 // src/services/geminiService.ts
+// OPRAVA: Použití namespace importu pro robustnost
 import * as genAI from "@google/genai";
 import type { GroundingAttribution, ArtistStyleAnalysis } from '../types';
 import { COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
