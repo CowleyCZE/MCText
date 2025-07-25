@@ -1,6 +1,6 @@
 // src/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
-// OPRAVA: Změna na namespace import
+// OPRAVA: Použití namespace importu pro robustnost
 import * as genAI from "@google/genai";
 import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
@@ -56,20 +56,30 @@ const App: React.FC = () => {
   // Progress tracking pro lepší UX
   const [analysisProgress, setAnalysisProgress] = useState<string>('');
 
-  // OPRAVA: Aktualizace typu pro instanci klienta
   const [aiInstance, setAiInstance] = useState<genAI.GoogleGenerativeAI | null>(null);
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   useEffect(() => {
     const initializeApp = () => {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (apiKey) {
-        // OPRAVA: Správná inicializace klienta s použitím namespace
-        const ai = new genAI.GoogleGenerativeAI(apiKey);
-        setAiInstance(ai);
-        setIsAppReady(true);
-      } else {
-        setIsApiKeyMissing(true);
+      try {
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (apiKey) {
+          // OPRAVA: Robustní způsob, jak získat konstruktor
+          const GoogleGenerativeAI = (genAI as any).GoogleGenerativeAI || (genAI as any).default;
+          if (!GoogleGenerativeAI || typeof GoogleGenerativeAI !== 'function') {
+            console.error("Konstruktor GoogleGenerativeAI nebyl v modulu @google/genai nalezen.", genAI);
+            throw new Error("Could not find GoogleGenerativeAI constructor in the module.");
+          }
+          const ai = new GoogleGenerativeAI(apiKey);
+          setAiInstance(ai);
+          setIsAppReady(true);
+        } else {
+          setIsApiKeyMissing(true);
+          setIsAppReady(false);
+        }
+      } catch (e) {
+        console.error("Chyba při inicializaci Gemini API:", e);
+        setError(`Chyba při inicializaci AI: ${e instanceof Error ? e.message : String(e)}`);
         setIsAppReady(false);
       }
     };
