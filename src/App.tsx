@@ -1,10 +1,12 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Buffer } from 'buffer';
 import { LyricInput } from './components/LyricInput';
-import InteractiveAnalysisDisplay from './components/InteractiveAnalysisDisplay'; // Import the new component
+import InteractiveAnalysisDisplay from './components/InteractiveAnalysisDisplay';
 import { KnowledgeBase } from './components/KnowledgeBase';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import MetaTagsModal from './components/MetaTagsModal';
+import { CopyButton, CharacterCount, GroundingAttributionsList } from './components/AnalysisDisplay';
 import { KNOWLEDGE_BASE_SECTIONS, SUNO_AI_LYRICS_MAX_CHARS } from './constants';
 import type { AnalysisResults, ArtistInfo, ArtistStyleAnalysis } from './types';
 import {
@@ -16,11 +18,10 @@ import {
   getSimilarArtistsForGenre,
   adjustLyricsToGenreAndArtist,
   analyzeArtistForStyleTransfer,
-  clearCache
+  clearCache,
+  generateMetaTagsWithOptionalDescription,
 } from './services/geminiService';
-import { CharacterCount, CopyButton, GroundingAttributionsList } from './components/AnalysisDisplay';
 
-// Nastavení globálního Bufferu pro polyfill v prohlížeči
 if (typeof window !== 'undefined') {
   (window as any).Buffer = Buffer;
 }
@@ -32,7 +33,7 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isApiKeyMissing, setIsApiKeyMissing] = useState<boolean>(false);
 
-  // Stavy pro "Přizpůsobit text žánru"
+  // Genre adjust tool
   const [showGenreAdjustmentTool, setShowGenreAdjustmentTool] = useState<boolean>(false);
   const [rankedGenres, setRankedGenres] = useState<string[]>([]);
   const [selectedGenreForAdjustment, setSelectedGenreForAdjustment] = useState<string | null>(null);
@@ -43,7 +44,7 @@ const App: React.FC = () => {
   const [isGenreAdjustmentLoading, setIsGenreAdjustmentLoading] = useState<boolean>(false);
   const [genreAdjustmentError, setGenreAdjustmentError] = useState<string | null>(null);
 
-  // Stavy pro "Upravit podle interpreta"
+  // Artist style
   const [artistNameForAnalysis, setArtistNameForAnalysis] = useState('');
   const [artistAnalysisResult, setArtistAnalysisResult] = useState<ArtistStyleAnalysis | null>(null);
   const [adjustedLyricsByArtist, setAdjustedLyricsByArtist] = useState<string | null>(null);
@@ -52,32 +53,32 @@ const App: React.FC = () => {
   const [sunoFormattedArtistLyrics, setSunoFormattedArtistLyrics] = useState<string | null>(null);
   const [isFormattingArtistLyrics, setIsFormattingArtistLyrics] = useState<boolean>(false);
 
-  // Progress tracking pro lepší UX
-  const [analysisProgress, setAnalysisProgress] = useState<string>('');
+  // Meta modal
+  const [isMetaModalOpen, setIsMetaModalOpen] = useState<boolean>(false);
+  const [isMetaGenerating, setIsMetaGenerating] = useState<boolean>(false);
+  const [metaError, setMetaError] = useState<string | null>(null);
+  const [metaResult, setMetaResult] = useState<{ styleOfMusic: string; sunoFormattedLyrics: string } | null>(null);
 
+  const [analysisProgress, setAnalysisProgress] = useState<string>('');
   const [aiInstance, setAiInstance] = useState<GoogleGenerativeAI | null>(null);
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   useEffect(() => {
-    const initializeApp = () => {
-      try {
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (apiKey) {
-          const ai = new GoogleGenerativeAI(apiKey);
-          setAiInstance(ai);
-          setIsAppReady(true);
-        } else {
-          setIsApiKeyMissing(true);
-          setIsAppReady(false);
-        }
-      } catch (e) {
-        console.error("Chyba při inicializaci Gemini API:", e);
-        setError(`Chyba při inicializaci AI: ${e instanceof Error ? e.message : String(e)}`);
+    try {
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (apiKey) {
+        const ai = new GoogleGenerativeAI(apiKey);
+        setAiInstance(ai);
+        setIsAppReady(true);
+      } else {
+        setIsApiKeyMissing(true);
         setIsAppReady(false);
       }
-    };
-
-    initializeApp();
+    } catch (e) {
+      console.error('Chyba při inicializaci Gemini API:', e);
+      setError(`Chyba při inicializaci AI: ${e instanceof Error ? e.message : String(e)}`);
+      setIsAppReady(false);
+    }
   }, []);
 
   const clearAllResults = useCallback(() => {
@@ -121,7 +122,13 @@ const App: React.FC = () => {
 
       const artistAnalysesTexts = topArtists.map(a => `${a.name}: ${a.analysis || 'N/A'}`);
 
-      const improvedLyrics = await getImprovedLyrics(aiInstance, lyrics, comprehensive.weakSpots, comprehensive.genre, artistAnalysesTexts);
+      const improvedLyrics = await getImprovedLyrics(
+        aiInstance,
+        lyrics,
+        comprehensive.weakSpots,
+        comprehensive.genre,
+        artistAnalysesTexts
+      );
 
       const [sunoFormatted, styleOfMusic] = await Promise.all([
         getSunoFormattedLyrics(aiInstance, improvedLyrics, comprehensive.genre),
@@ -143,11 +150,11 @@ const App: React.FC = () => {
       setAnalysisProgress('');
 
     } catch (e: any) {
-      console.error("Chyba při zpracování:", e);
+      console.error('Chyba při zpracování:', e);
       let errorMessage = `Došlo k chybě: ${e.message}. Zkontrolujte konzoli pro více detailů.`;
-      if (e.message && e.message.includes("API key not valid")) {
+      if (e.message && e.message.includes('API key not valid')) {
          errorMessage = `Poskytnutý API klíč není platný. Zkontrolujte prosím konfiguraci API klíče v prostředí aplikace. (${e.message})`;
-      } else if (e.message && e.message.toLowerCase().includes("quota")) {
+      } else if (e.message && e.message.toLowerCase().includes('quota')) {
         errorMessage = `Byl překročen limit API (quota). Zkuste to prosím později. (${e.message})`;
       }
       setError(errorMessage);
@@ -166,7 +173,7 @@ const App: React.FC = () => {
       setGenreAdjustmentError(null);
     } else {
       if (!lyrics.trim()) {
-        setGenreAdjustmentError("Nejprve prosím vložte text písně do horního pole.");
+        setGenreAdjustmentError('Nejprve prosím vložte text písně do horního pole.');
         return;
       }
       setAnalysisResults(null);
@@ -189,7 +196,7 @@ const App: React.FC = () => {
       setRankedGenres(comprehensive.rankedGenres);
       setGenreAdjustmentStep(1);
     } catch (e: any) {
-      console.error("Chyba při načítání hodnocených žánrů:", e);
+      console.error('Chyba při načítání hodnocených žánrů:', e);
       setGenreAdjustmentError(`Nepodařilo se načíst žánry: ${e.message}`);
     } finally {
       setIsGenreAdjustmentLoading(false);
@@ -207,7 +214,7 @@ const App: React.FC = () => {
       setSimilarArtistsForGenre(artists);
       setGenreAdjustmentStep(2);
     } catch (e: any) {
-      console.error("Chyba při načítání podobných interpretů:", e);
+      console.error('Chyba při načítání podobných interpretů:', e);
       setGenreAdjustmentError(`Nepodařilo se načíst interprety pro žánr ${genre}: ${e.message}`);
       setGenreAdjustmentStep(1);
     } finally {
@@ -221,7 +228,7 @@ const App: React.FC = () => {
     if (selectedGenreForAdjustment) {
       handleAdjustLyricsSubmit(selectedGenreForAdjustment, artistName);
     } else {
-      setGenreAdjustmentError("Žánr pro úpravu není vybrán.");
+      setGenreAdjustmentError('Žánr pro úpravu není vybrán.');
     }
   };
 
@@ -238,7 +245,7 @@ const App: React.FC = () => {
       setAdjustedLyricsByGenre(adjustedText);
       setGenreAdjustmentStep(3);
     } catch (e: any) {
-      console.error("Chyba při úpravě textu:", e);
+      console.error('Chyba při úpravě textu:', e);
       setGenreAdjustmentError(`Nepodařilo se upravit text: ${e.message}`);
       setGenreAdjustmentStep(2);
     } finally {
@@ -256,7 +263,7 @@ const App: React.FC = () => {
 
   const handleAdjustByArtist = async () => {
     if (!isAppReady || !aiInstance || !lyrics.trim() || !artistNameForAnalysis.trim()) {
-      setArtistAnalysisError("Zadejte prosím text písně i jméno interpreta.");
+      setArtistAnalysisError('Zadejte prosím text písně i jméno interpreta.');
       return;
     }
     setIsArtistAnalysisLoading(true);
@@ -270,11 +277,17 @@ const App: React.FC = () => {
       const analysis = await analyzeArtistForStyleTransfer(aiInstance, artistNameForAnalysis);
       setArtistAnalysisResult(analysis);
 
-      const adjustedText = await adjustLyricsToGenreAndArtist(aiInstance, lyrics, analysis.genre, artistNameForAnalysis, analysis.analysis);
+      const adjustedText = await adjustLyricsToGenreAndArtist(
+        aiInstance,
+        lyrics,
+        analysis.genre,
+        artistNameForAnalysis,
+        analysis.analysis
+      );
       setAdjustedLyricsByArtist(adjustedText);
 
     } catch (e: any) {
-      console.error("Chyba při úpravě podle interpreta:", e);
+      console.error('Chyba při úpravě podle interpreta:', e);
       setArtistAnalysisError(`Chyba při úpravě podle interpreta: ${e.message}`);
     } finally {
       setIsArtistAnalysisLoading(false);
@@ -283,7 +296,7 @@ const App: React.FC = () => {
 
   const handleFormatArtistLyricsForSuno = async () => {
     if (!isAppReady || !aiInstance || !adjustedLyricsByArtist || !artistAnalysisResult) {
-      setArtistAnalysisError("Nejsou k dispozici potřebná data pro formátování.");
+      setArtistAnalysisError('Nejsou k dispozici potřebná data pro formátování.');
       return;
     }
     setIsFormattingArtistLyrics(true);
@@ -292,10 +305,39 @@ const App: React.FC = () => {
       const sunoFormatted = await getSunoFormattedLyrics(aiInstance, adjustedLyricsByArtist, artistAnalysisResult.genre);
       setSunoFormattedArtistLyrics(sunoFormatted);
     } catch (e: any) {
-      console.error("Chyba při formátování textu pro Suno.ai:", e);
+      console.error('Chyba při formátování textu pro Suno.ai:', e);
       setArtistAnalysisError(`Nepodařilo se naformátovat text pro Suno.ai: ${e.message}`);
     } finally {
       setIsFormattingArtistLyrics(false);
+    }
+  };
+
+  const openMetaModal = () => {
+    if (!lyrics.trim()) {
+      alert('Nejprve vložte text písně.');
+      return;
+    }
+    setMetaError(null);
+    setMetaResult(null);
+    setIsMetaModalOpen(true);
+  };
+
+  const handleConfirmMeta = async (description: string | null) => {
+    if (!aiInstance || !isAppReady) return;
+    try {
+      setIsMetaGenerating(true);
+      setMetaError(null);
+      const res = await generateMetaTagsWithOptionalDescription(
+        aiInstance,
+        lyrics,
+        description || undefined
+      );
+      setMetaResult(res);
+    } catch (e: any) {
+      console.error('Chyba při generování metatagů:', e);
+      setMetaError(e?.message || 'Nepodařilo se vygenerovat metatagy.');
+    } finally {
+      setIsMetaGenerating(false);
     }
   };
 
@@ -353,6 +395,33 @@ const App: React.FC = () => {
             onProcess={handleProcessLyrics}
             isLoading={isLoading || !isAppReady || isGenreAdjustmentLoading || isArtistAnalysisLoading}
           />
+          <div className="bg-slate-800 p-6 rounded-xl shadow-2xl space-y-4">
+            <button
+              onClick={openMetaModal}
+              disabled={isLoading || !isAppReady || !lyrics.trim()}
+              className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-opacity-75"
+            >
+              Přidat metatagy a 'Style of Music'
+            </button>
+            {metaResult && (
+              <div className="space-y-3">
+                <div className="bg-slate-700/50 p-3 rounded-lg">
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-semibold text-slate-200">Style of Music</h4>
+                    <CopyButton textToCopy={metaResult.styleOfMusic} />
+                  </div>
+                  <p className="text-amber-300 mt-1">{metaResult.styleOfMusic}</p>
+                </div>
+                <div className="bg-slate-700/50 p-3 rounded-lg">
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-semibold text-slate-200">Text s metatagy</h4>
+                    <CopyButton textToCopy={metaResult.sunoFormattedLyrics} />
+                  </div>
+                  <pre className="whitespace-pre-wrap text-slate-200 bg-slate-900 p-3 rounded-md max-h-64 overflow-y-auto">{metaResult.sunoFormattedLyrics}</pre>
+                </div>
+              </div>
+            )}
+          </div>
            <div className="bg-slate-800 p-6 rounded-xl shadow-2xl space-y-4">
             <button
                 onClick={handleToggleGenreAdjustmentTool}
@@ -426,7 +495,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {isAppReady && analysisResults && !isLoading && 
+          {isAppReady && analysisResults && !isLoading && (
             <InteractiveAnalysisDisplay 
               lyrics={analysisResults.improvedLyrics}
               weakSpots={analysisResults.weakSpots}
@@ -435,7 +504,7 @@ const App: React.FC = () => {
               }}
               ai={aiInstance}
             />
-          }
+          )}
 
           {isAppReady && showGenreAdjustmentTool && (
             <div className="bg-slate-800 p-5 rounded-xl shadow-xl space-y-4">
@@ -482,7 +551,7 @@ const App: React.FC = () => {
                   )}
                   {genreAdjustmentStep === 3 && adjustedLyricsByGenre && (
                     <div>
-                      <h4 className="font-semibold text-slate-200 mb-2">Upravený text (Žánr: {selectedGenreForAdjustment}{selectedArtistForAdjustment ? `, styl: ${selectedArtistForAdjustment}` : ''}):</h4>
+                      <h4 className="font-semibold text-slate-200 mb-2">Upravený text (žánr: {selectedGenreForAdjustment}{selectedArtistForAdjustment ? `, styl: ${selectedArtistForAdjustment}` : ''}):</h4>
                       <pre className="whitespace-pre-wrap text-slate-200 bg-slate-700 p-3 rounded-md max-h-96 overflow-y-auto">{adjustedLyricsByGenre}</pre>
                       <div className="flex items-center space-x-2">
                         <CopyButton textToCopy={adjustedLyricsByGenre} />
@@ -499,7 +568,7 @@ const App: React.FC = () => {
             <div className="bg-slate-800 p-5 rounded-xl shadow-xl space-y-4">
               <h3 className="text-xl font-semibold text-emerald-400">Úprava podle interpreta: <span className="font-bold">{artistNameForAnalysis}</span></h3>
               <div className="bg-slate-700/50 p-4 rounded-lg">
-                <h4 className="font-semibold text-slate-200 mb-2">Analýza stylu (Žánr: {artistAnalysisResult.genre})</h4>
+                <h4 className="font-semibold text-slate-200 mb-2">Analýza stylu (žánr: {artistAnalysisResult.genre})</h4>
                 <p className="whitespace-pre-wrap text-slate-300 text-sm">{artistAnalysisResult.analysis}</p>
                 <GroundingAttributionsList attributions={artistAnalysisResult.attributions} />
               </div>
@@ -544,6 +613,15 @@ const App: React.FC = () => {
       </main>
 
       <KnowledgeBase sections={KNOWLEDGE_BASE_SECTIONS} />
+
+      <MetaTagsModal
+        isOpen={isMetaModalOpen}
+        onClose={() => setIsMetaModalOpen(false)}
+        onConfirm={handleConfirmMeta}
+        isProcessing={isMetaGenerating}
+        result={metaResult}
+        error={metaError}
+      />
 
       <footer className="text-center text-sm text-slate-500 pt-8">
         <p>&copy; {new Date().getFullYear()} Lyric Analyzer - Optimalizovaná verze. Vytvořeno s React, Tailwind CSS a Gemini API.</p>

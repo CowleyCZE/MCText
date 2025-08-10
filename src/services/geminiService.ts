@@ -1,6 +1,7 @@
 // src/services/geminiService.ts
 import { GoogleGenerativeAI, GenerateContentResult } from "@google/generative-ai";
 import type { GroundingAttribution, ArtistStyleAnalysis, WeakSpot } from '../types';
+import { Buffer } from 'buffer';
 import { COMPACT_PERSONA, ANALYSIS_PERSONA, IMPROVEMENT_PERSONA, SUNO_PERSONA } from '../persona';
 
 // Cache pro optimalizaci API volání
@@ -43,7 +44,7 @@ const cache = new OptimizedCache();
 const parseGroundingAttributionsFromResult = (result: GenerateContentResult): GroundingAttribution[] => {
   const chunks = result.response.candidates?.[0]?.groundingMetadata?.groundingChunks;
   if (!chunks) return [];
-  return chunks.map((attr: any) => ({
+  return (chunks as any[]).map((attr: any) => ({
     web: attr.web ? { uri: attr.web.uri || '', title: attr.web.title || '' } : undefined,
   })).filter((attr: any): attr is { web: { uri: string; title: string; } } => !!attr.web && (!!attr.web.uri || !!attr.web.title)); 
 };
@@ -173,7 +174,7 @@ export const getArtistAnalyses = async (ai: GoogleGenerativeAI, artistNames: str
         tools: [{googleSearchRetrieval: {}}]
     });
 
-    const result = await model.generateContent(prompt);
+  const result = await model.generateContent(prompt);
     
     const finalResult = {
       analysis: result.response.text(),
@@ -190,7 +191,15 @@ export const getArtistAnalyses = async (ai: GoogleGenerativeAI, artistNames: str
 // Optimalizovaná verze vylepšení textů - kratší prompt
 export const getImprovedLyrics = async (ai: GoogleGenerativeAI, originalLyrics: string, weakSpots: WeakSpot[], genre: string, artistAnalyses: string[]): Promise<string> => {
   const weakSpotDescriptions = weakSpots.map(ws => ws.description).join(', ');
-  const prompt = `Vylepši tento text pro žánr ${genre}:\n\nPŮVODNÍ TEXT:\n${originalLyrics}\n\nSLABINY: ${weakSpotDescriptions || 'Bez specifických slabin'}\nSTYL: Inspiruj se styly: ${artistAnalyses.slice(0, 3).join('; ')}\n\nVrať POUZE vylepšený text bez komentářů.`
+  const prompt = `Vylepši tento text pro žánr ${genre}:
+
+PŮVODNÍ TEXT:
+${originalLyrics}
+
+SLABINY: ${weakSpotDescriptions || 'Bez specifických slabin'}
+STYL: Inspiruj se styly: ${artistAnalyses.slice(0, 3).join('; ')}
+
+Vrať POUZE vylepšený text bez komentářů.`
 
   const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: IMPROVEMENT_PERSONA });
   const result = await model.generateContent(prompt);
@@ -200,7 +209,20 @@ export const getImprovedLyrics = async (ai: GoogleGenerativeAI, originalLyrics: 
 
 // Optimalizovaná verze Suno formátování - kratší prompt s příklady
 export const getSunoFormattedLyrics = async (ai: GoogleGenerativeAI, improvedLyrics: string, genre: string): Promise<string> => {
-  const prompt = `Naformátuj pro Suno.ai (žánr: ${genre}). Max 3000 znaků.\n\nVZOR:\n[intro]\n[verse]\nText verše...\n[chorus]\nText refrénu...\n[outro]\n\nTEXT K FORMÁTOVÁNÍ:\n${improvedLyrics}\n\nVrať POUZE naformátovaný text s metatagy.`
+  const prompt = `Naformátuj pro Suno.ai (žánr: ${genre}). Max 3000 znaků.
+
+VZOR:
+[intro]
+[verse]
+Text verše...
+[chorus]
+Text refrénu...
+[outro]
+
+TEXT K FORMÁTOVÁNÍ:
+${improvedLyrics}
+
+Vrať POUZE naformátovaný text s metatagy.`
 
   const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: SUNO_PERSONA });
   const result = await model.generateContent(prompt);
@@ -214,7 +236,11 @@ export const getSunoFormattedLyrics = async (ai: GoogleGenerativeAI, improvedLyr
 
 // Optimalizovaná verze Style of Music - velmi kratký prompt
 export const getStyleOfMusic = async (ai: GoogleGenerativeAI, genre: string): Promise<string> => {
-  const prompt = `"Style of Music" pro Suno.ai (max 200 znaků, anglicky):\nŽánr: ${genre}\nPříklad: "Upbeat pop rock with energetic drums"\n\nVrať POUZE popis stylu:`
+  const prompt = `"Style of Music" pro Suno.ai (max 200 znaků, anglicky):
+Žánr: ${genre}
+Příklad: "Upbeat pop rock with energetic drums"
+
+Vrať POUZE popis stylu:`
 
   const model = ai.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: COMPACT_PERSONA });
   const result = await model.generateContent(prompt);
@@ -224,6 +250,67 @@ export const getStyleOfMusic = async (ai: GoogleGenerativeAI, genre: string): Pr
     style = style.substring(0, 197) + "...";
   }
   return style;
+};
+
+// Nová služba: vytvoří metatagy a Style of Music s volitelným vlastním popisem
+export const generateMetaTagsWithOptionalDescription = async (
+  ai: GoogleGenerativeAI,
+  lyrics: string,
+  customDescription?: string
+): Promise<{ styleOfMusic: string; sunoFormattedLyrics: string }> => {
+  const keyBase = Buffer.from((customDescription || 'auto') + '|' + lyrics).toString('base64').slice(0, 60);
+  const cacheKey = `meta-gen-${keyBase}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const instruction = customDescription && customDescription.trim().length > 0
+    ? `Použij tento popis hudby (anglicky přepiš či rozšiř, pokud je nutné): "${customDescription}".`
+    : `Nejprve odhadni stručný popis stylu hudby pouze z textu písně (v angličtině).`;
+
+  const prompt = `Úkol: Vyber nejvhodnější metatagy pro text písně a správně je aplikuj.
+
+Požadavky:
+- Metatagy používej ze sady: [intro], [verse], [pre-chorus], [chorus], [post-chorus], [bridge], [breakdown], [outro].
+- Zachovej logickou strukturu skladby. Nepřidávej vysvětlivky, jen čistý text s metatagy.
+- Délka výsledku max ${3000} znaků.
+- Navíc vygeneruj i "Style of Music" (anglicky, max ${200} znaků).
+- Výsledek vrať POUZE jako JSON objekt:
+{
+  "styleOfMusic": "string",
+  "sunoFormattedLyrics": "string s metatagy"
+}
+
+Kontekst:
+${instruction}
+
+TEXT PÍSNĚ:
+${lyrics}`;
+
+  const model = ai.getGenerativeModel({
+    model: GEMINI_MODEL,
+    systemInstruction: SUNO_PERSONA,
+    generationConfig: {
+      responseMimeType: "application/json"
+    }
+  });
+
+  const result = await model.generateContent(prompt);
+  const responseText = result.response.text();
+  const parsed = parseJsonSafely<{ styleOfMusic: string; sunoFormattedLyrics: string }>(
+    responseText,
+    { styleOfMusic: '', sunoFormattedLyrics: '' },
+    'generateMetaTagsWithOptionalDescription'
+  );
+
+  // Ořež na maximální délky jako pojistku
+  let style = parsed.styleOfMusic || '';
+  if (style.length > 200) style = style.slice(0, 197) + '...';
+  let formatted = parsed.sunoFormattedLyrics || '';
+  if (formatted.length > 3000) formatted = formatted.slice(0, 2990) + '\n[TRUNCATED]';
+
+  const finalResult = { styleOfMusic: style, sunoFormattedLyrics: formatted };
+  cache.set(cacheKey, finalResult);
+  return finalResult;
 };
 
 export const getSimilarArtistsForGenre = async (ai: GoogleGenerativeAI, lyrics: string, genre: string): Promise<string[]> => {
